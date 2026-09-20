@@ -3,6 +3,7 @@ use crate::ast_rewriter::LayoutDirection;
 use crate::engine::{DiagramNode, RenderedDiagram};
 use crate::error::CoreError;
 use crate::theme::ColorPalette;
+use crate::xml_utils::escape_xml;
 
 #[derive(Debug, Clone)]
 pub struct ClassMember {
@@ -298,6 +299,7 @@ impl ClassDiagramParser {
                 nodes.push(DiagramNode {
                     id: class.id.clone(),
                     label: class.id.clone(),
+                    lines: vec![escape_xml(&class.id)],
                     x,
                     y,
                     width: card_w,
@@ -397,12 +399,13 @@ impl ClassDiagramParser {
                 ));
 
                 if let Some(ref lbl) = rel.label {
+                    let esc_lbl = escape_xml(lbl);
                     svg.push_str(&format!(
                         r##"<rect x="{}" y="{}" width="{}" height="20" rx="4" fill="{}" opacity="0.95"/>
                         <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
                         mid_x - (lbl.len() * 4) as f32 - 6.0, mid_y - 10.0, (lbl.len() * 8 + 12) as f32,
                         palette.badge_bg,
-                        mid_x, mid_y, palette.text_main, lbl
+                        mid_x, mid_y, palette.text_main, esc_lbl
                     ));
                 }
             }
@@ -411,31 +414,33 @@ impl ClassDiagramParser {
         // Draw Class Cards
         for class in class_list {
             if let Some(&(x, y, w, h)) = node_positions.get(&class.id) {
+                let esc_id = escape_xml(&class.id);
                 svg.push_str(&format!(
                     r##"<g id="node_{}" class="class-node">
                     <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}" stroke="{}" stroke-width="2"/>
                     <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}"/>
                     <line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1.5"/>"##,
-                    class.id,
+                    esc_id,
                     x, y, w, h, palette.card_bg, palette.border,
                     x, y, w, header_h, palette.card_header,
                     x, y + header_h, x + w, y + header_h, palette.border
                 ));
 
-                // Stereotype
+                // Stereotype - Note: Using literal UTF-8 « and » instead of &laquo; to be valid XML
                 if let Some(ref stereo) = class.stereotype {
+                    let esc_stereo = escape_xml(stereo);
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" text-anchor="middle" dominant-baseline="middle">&laquo;{}&raquo;</text>"##,
-                        x + w / 2.0, y + 14.0, palette.text_accent, stereo
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" text-anchor="middle" dominant-baseline="middle">«{}»</text>"##,
+                        x + w / 2.0, y + 14.0, palette.text_accent, esc_stereo
                     ));
                     svg.push_str(&format!(
                         r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
-                        x + w / 2.0, y + 30.0, palette.text_main, class.id
+                        x + w / 2.0, y + 30.0, palette.text_main, esc_id
                     ));
                 } else {
                     svg.push_str(&format!(
                         r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
-                        x + w / 2.0, y + 22.0, palette.text_main, class.id
+                        x + w / 2.0, y + 22.0, palette.text_main, esc_id
                     ));
                 }
 
@@ -455,11 +460,12 @@ impl ClassDiagramParser {
                             '#' => &palette.protected_vis,
                             _ => &palette.package_vis,
                         };
+                        let esc_attr = escape_xml(&attr.raw);
                         svg.push_str(&format!(
                             r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-weight="bold">{}</text>
                             <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12">{}</text>"##,
                             x + 14.0, cur_y, vis_color, attr.visibility,
-                            x + 28.0, cur_y, palette.text_sub, attr.raw
+                            x + 28.0, cur_y, palette.text_sub, esc_attr
                         ));
                         cur_y += 20.0;
                     }
@@ -486,11 +492,12 @@ impl ClassDiagramParser {
                             '#' => &palette.protected_vis,
                             _ => &palette.package_vis,
                         };
+                        let esc_meth = escape_xml(&meth.raw);
                         svg.push_str(&format!(
                             r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-weight="bold">{}</text>
                             <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12">{}</text>"##,
                             x + 14.0, cur_y, vis_color, meth.visibility,
-                            x + 28.0, cur_y, palette.text_main, meth.raw
+                            x + 28.0, cur_y, palette.text_main, esc_meth
                         ));
                         cur_y += 20.0;
                     }

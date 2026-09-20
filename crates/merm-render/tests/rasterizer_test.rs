@@ -7,7 +7,7 @@ fn test_svg_rasterizer_renders_pixels() {
     let transform = Transform2D::default();
     let mut buffer = vec![0u32; 100 * 100];
 
-    let res = rasterizer.rasterize(svg, &transform, 100, 100, &mut buffer);
+    let res = rasterizer.rasterize(svg, &transform, 100, 100, &mut buffer, None);
     assert!(res.is_ok());
 
     // Verify some pixels are not black (background is 0x1e1e2e, rect is 0x89b4fa)

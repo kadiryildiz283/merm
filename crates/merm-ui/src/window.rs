@@ -28,6 +28,7 @@ pub struct MermAppWindow {
     last_frame: Instant,
     mouse_dragging: bool,
     last_cursor_pos: Option<(f64, f64)>,
+    initial_fit_done: bool,
 }
 
 impl MermAppWindow {
@@ -42,6 +43,7 @@ impl MermAppWindow {
             last_frame: Instant::now(),
             mouse_dragging: false,
             last_cursor_pos: None,
+            initial_fit_done: false,
         }
     }
 
@@ -88,22 +90,34 @@ impl MermAppWindow {
 
         let bg_color = parse_hex_color(&self.app_state.theme.palette().background);
         let hud_color = parse_hex_color(&self.app_state.theme.palette().badge_bg);
+        let hud_height = 28u32;
+
+        if !self.initial_fit_done {
+            if let Some(ref diagram) = self.app_state.current_diagram {
+                let avail_h = (height.saturating_sub(hud_height)).max(1) as f32;
+                self.app_state.transform.fit_to_viewport(diagram.width, diagram.height, width as f32, avail_h);
+                self.initial_fit_done = true;
+            }
+        }
+
+        // Always fill background first so the window is never pitch-black
+        buffer.fill(bg_color);
 
         // Rasterize active diagram SVG using tiny-skia + resvg
         if let Some(ref diagram) = self.app_state.current_diagram {
-            let _ = self.rasterizer.rasterize(
+            if let Err(e) = self.rasterizer.rasterize(
                 &diagram.svg,
                 &self.app_state.transform,
                 width,
                 height,
                 &mut buffer,
-            );
-        } else {
-            buffer.fill(bg_color);
+                Some(bg_color),
+            ) {
+                log::error!("Rasterization failed: {}", e);
+            }
         }
 
         // Draw HUD bar at the bottom: 28px height with current theme color
-        let hud_height = 28u32;
         if height > hud_height {
             let start_y = height - hud_height;
             for y in start_y..height {
@@ -139,6 +153,8 @@ impl ApplicationHandler for MermAppWindow {
                 .expect("Failed to create softbuffer context");
             let surface = softbuffer::Surface::new(&context, window.clone())
                 .expect("Failed to create softbuffer surface");
+
+            window.request_redraw();
 
             self.window = Some(window);
             self.context = Some(context);

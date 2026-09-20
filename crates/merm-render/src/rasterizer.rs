@@ -74,6 +74,7 @@ impl SvgRasterizer {
         width: u32,
         height: u32,
         dest_buffer: &mut [u32],
+        bg_color: Option<u32>,
     ) -> Result<(), String> {
         if width == 0 || height == 0 || dest_buffer.len() < (width * height) as usize {
             return Err("Invalid buffer dimensions".to_string());
@@ -89,8 +90,12 @@ impl SvgRasterizer {
         let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)
             .ok_or_else(|| "Failed to allocate tiny-skia pixmap".to_string())?;
 
-        // Fill background with canvas color or transparent if SVG specifies rect
-        pixmap.fill(resvg::tiny_skia::Color::from_rgba8(30, 30, 46, 255));
+        let (bg_r, bg_g, bg_b) = if let Some(c) = bg_color {
+            (((c >> 16) & 0xFF) as u8, ((c >> 8) & 0xFF) as u8, (c & 0xFF) as u8)
+        } else {
+            (30, 30, 46)
+        };
+        pixmap.fill(resvg::tiny_skia::Color::from_rgba8(bg_r, bg_g, bg_b, 255));
 
         let render_ts = resvg::tiny_skia::Transform::from_scale(transform.scale, transform.scale)
             .post_translate(transform.pan_x, transform.pan_y);
