@@ -52,30 +52,37 @@ Most existing Mermaid diagram tools rely on heavy web stacks: WebKitGTK wrappers
 - 💡 **AI Architecture Advisor & Safe Mutations (`&advice` & `&ok`):** Request architectural recommendations (`&advice`). When you approve with `&ok`, `merm` creates atomic rollback snapshots in `.merm/snapshots/`, applies code/diagram changes, and verifies them with `cargo check`—rolling back automatically on error!
 - 🤖 **Autonomous Multi-File Refactoring (`&ai`):** Run full feature additions or refactorings with synchronized diagram and code updates.
 - 📐 **Deep UML Class & Struct Diagram Support:** Full 3-compartment UML cards with syntax-highlighted visibility tokens (`+`, `-`, `#`, `~`), types, variables, methods, comments, and stereotypes (`<<struct>>`, `<<enum>>`, `<<module>>`).
-- ⌨️ **Vim Modal Navigation & Command Bar:** Muscle-memory navigation with `hjkl`, `Tab` / `p` direction pivoting, `0` fit-to-view, `:` and `&` interactive command bar, and one-click quick action pills.
+- ⌨️ **Vim Modal Navigation & Authentic Statusline:** Muscle-memory navigation with `hjkl`, `Tab` / `p` direction pivoting, `0` / `:fit` readable diagram auto-fit, full-width `:` and `&` command line, and an authentic Airline/Lualine statusline (`[ NORMAL ]`, project path, active symbol, background task spinner, and metrics ruler).
+- 📜 **Scrollable Vim Split Buffer (AI Chat & Diagnostics):** Displays diagnostic reports and AI advice in a full horizontal Vim split buffer (bottom 50%) featuring line numbers (` 1 │`), syntax highlighting, `j`/`k`/`d`/`u`/`g`/`G` Vim scrolling, and one-key proposal application (`o` -> `&ok`).
 - 🪟 **Terminal-First Transparent Mode:** Canvas transparency with Wayland alpha compositing (`with_transparent(true)`). No unwanted background is forced—your terminal's background, opacity (e.g. Ghostty `0.90`), blur, or desktop shows directly behind the diagram!
 - 🎨 **8 Designer Themes:** Catppuccin Mocha, Tokyo Night, Nord, Gruvbox Dark, Dracula, Monokai, Monokai Terminal, and Catppuccin Latte.
 - 🔌 **Bidirectional Editor IPC:** Real-time sync with Neovim (`merm.nvim`) via secure Unix Domain Sockets authenticated by the Linux kernel (`SO_PEERCRED`).
 
 ---
 
-## 🛠️ Interactive Command Protocol (`&` / `:` Prefix)
+## 🛠️ Interactive Command Protocol (`:` / `&` Prefix)
 
-Open the command bar anytime by pressing `:` or `&` in the GUI, or click any of the quick-action pills in the bottom dock:
+Open the command line anytime by pressing `:` or `&` in Normal mode:
 
-| Command | Shortcut / Pill | Description |
+| Command | Type | Description |
 | :--- | :---: | :--- |
-| `&agy <PROMPT>` | `&agy` | Invokes Google Antigravity CLI (`agy`) directly on the project and diagram. |
-| `&check` | `&check` | Tests compatibility between the project and diagram using `syn` AST inspection, `cargo check`, and LLM critique. Displays a full diagnostic report modal. |
-| `&ai <PROMPT>` | `&ai` | Autonomous multi-file code generation and diagram update with automatic build verification and rollback protection. |
-| `&advice <QUERY>` | `&advice` | Asks the LLM for architectural advice or refactoring strategy (read-only proposal preview). |
-| `&ok` | — | Applies the pending recommendation from `&advice`. Creates an atomic rollback backup in `.merm/snapshots/`, applies mutations, and verifies build. |
-| `&set [PATH]` | `&set` | Binds the current Mermaid diagram to a target Rust project root (creates/loads `.merm/manifest.json` and maps symbols). |
-| `:test [Node] [Input]` | `:test` | Opens the interactive Node Test drawer for the target or currently selected node. |
-| `:config [KEY] [VAL]` | `:cfg` | Views or updates LLM provider, API keys, models, and endpoints (e.g., `:config provider agy`, `:config api_key sk-...`). |
-| `:add <kind> <Name>` | `:add` | Adds a new node to the diagram and automatically scaffolds the corresponding Rust module (`src/<name>.rs`) with executable entrypoints. |
-| `:connect <A> <B> [label]` | — | Adds a dependency arrow/relation between two nodes in the diagram. |
-| `:help` | `:help` | Opens the in-app interactive command and keybinding reference. |
+| `&agy <PROMPT>` | AI | Invokes Google Antigravity CLI (`agy`) directly on the project and diagram. |
+| `&check` | AI / AST | Tests compatibility between the project and diagram using `syn` AST inspection, `cargo check`, and LLM critique. Opens the scrollable Vim split report. |
+| `&ai <PROMPT>` | AI | Autonomous multi-file code generation and diagram update with automatic build verification and rollback protection. |
+| `&advice <QUERY>` | AI | Asks the LLM for architectural advice or refactoring strategy (opens proposal in the scrollable split buffer). |
+| `&ok` | AI / Mutation | Applies the pending recommendation from `&advice`. Creates an atomic rollback backup in `.merm/snapshots/`, applies mutations, and verifies build. |
+| `&set [PATH]` | Project | Binds the current Mermaid diagram to a target Rust project root (creates/loads `.merm/manifest.json` and maps symbols). |
+| `:test [Node] [Input]` | Execution | Opens the interactive Node Test drawer for the target or currently selected node. |
+| `:config [KEY] [VAL]` | Settings | Views or updates LLM provider, API keys, models, and endpoints (e.g., `:config provider agy`, `:config api_key sk-...`). |
+| `:theme <NAME>` | View | Switches active color theme (`mocha`, `dracula`, `nord`, `tokyo`, `gruvbox`, `latte`, `monokai`, `terminal`). |
+| `:dir <DIR>` | View | Changes diagram layout direction (`TD`, `LR`, `BT`, `RL`). |
+| `:fit` / `:reset` | View | Re-fits diagram with comfortable readable scale (`>= 0.75x`) or resets canvas offset. |
+| `:clear` | Buffer | Closes the AI chat / diagnostic report split buffer. |
+| `:add <kind> <Name>` | Scaffolding | Adds a new node to the diagram and automatically scaffolds the corresponding Rust module (`src/<name>.rs`) with executable entrypoints. |
+| `:connect <A> <B> [label]` | Diagram | Adds a dependency arrow/relation between two nodes in the diagram. |
+| `:w` / `:write` | File | Saves diagram state and manifests to `merm.mmd`. |
+| `:q` / `:quit` | App | Exits the application (`:wq` saves and exits). |
+| `:help` | Help | Displays command and keybinding reference. |
 
 ---
 
@@ -159,14 +166,18 @@ When a Rust project is bound to `merm`:
 | `e` | Normal (Node selected) | Open bound Rust source file in `$EDITOR` (Neovim, Helix, VSCode) |
 | `h`, `j`, `k`, `l` | Normal | Pan canvas left, down, up, right |
 | `+` / `-` | Normal | Zoom in / Zoom out |
-| `0` | Normal | Fit diagram to viewport |
+| `0` | Normal | Fit diagram to viewport (guarantees >= 0.75x readable scale) |
 | `Tab` or `p` | Normal | Pivot layout direction (`TD` ↔ `LR` ↔ `RL` ↔ `BT`) |
 | `n` / `N` | Normal | Select and focus next / previous node |
 | `/` or `f` | Normal | Enter Search / Jump mode |
+| `j` / `k` (or `↓` / `↑`) | Split Buffer | Scroll AI chat & diagnostic report down / up by 1 line |
+| `d` / `u` (or `PgDn` / `PgUp`) | Split Buffer | Scroll report down / up by 10 lines |
+| `g` / `G` | Split Buffer | Jump to top / bottom of report buffer |
+| `o` | Split Buffer | Quick-apply proposed recommendation (`&ok`) |
 | **Left Click + Drag** | Canvas | Pan canvas |
 | **Left Click on Node** | Node | **Drag & drop node** (connected relationship arrows dynamically bend!) |
-| **Mouse Wheel** | Canvas | Zoom in / out centered at cursor position |
-| `q` or `Esc` | Any | Close modal drawer / Quit application |
+| **Mouse Wheel** | Canvas / Split | Zoom canvas in/out, or scroll active split buffer |
+| `q` or `Esc` | Any | Close modal/split drawer, or quit application |
 
 ---
 
