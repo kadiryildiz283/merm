@@ -31,13 +31,27 @@ impl LayoutDirection {
 pub struct AstRewriter;
 
 impl AstRewriter {
-    /// Pivots diagram layout direction (e.g. flowchart TD -> flowchart LR).
+    /// Pivots diagram layout direction (e.g. flowchart TD -> flowchart LR, or adds/modifies direction LR in classDiagram).
     pub fn pivot_direction(source: &str, target_dir: LayoutDirection) -> String {
         let mut rewritten = Vec::new();
         let mut direction_replaced = false;
+        let mut is_class_diagram = false;
 
         for line in source.lines() {
             let trimmed = line.trim();
+
+            if trimmed.starts_with("classDiagram") {
+                is_class_diagram = true;
+                rewritten.push(line.to_string());
+                continue;
+            }
+
+            if trimmed.starts_with("direction ") {
+                rewritten.push(format!("    direction {}", target_dir.as_str()));
+                direction_replaced = true;
+                continue;
+            }
+
             if !direction_replaced
                 && (trimmed.starts_with("flowchart") || trimmed.starts_with("graph"))
             {
@@ -49,7 +63,20 @@ impl AstRewriter {
                     continue;
                 }
             }
+
             rewritten.push(line.to_string());
+        }
+
+        // If it was a classDiagram without a direction line, inject it right after classDiagram
+        if is_class_diagram && !direction_replaced {
+            let mut final_lines = Vec::new();
+            for line in rewritten {
+                final_lines.push(line.clone());
+                if line.trim().starts_with("classDiagram") {
+                    final_lines.push(format!("    direction {}", target_dir.as_str()));
+                }
+            }
+            return final_lines.join("\n");
         }
 
         rewritten.join("\n")

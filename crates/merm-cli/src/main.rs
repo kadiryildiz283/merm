@@ -6,7 +6,7 @@ use std::process;
 use std::sync::mpsc::channel;
 
 use merm_ipc::IpcServer;
-use merm_ui::AppState;
+use merm_ui::{AppState, MermAppWindow};
 
 fn default_socket_path() -> PathBuf {
     let uid = unsafe { libc::getuid() };
@@ -31,18 +31,21 @@ ARGS:
 
 OPTIONS:
     --software-render    Force CPU software rasterization fallback (softbuffer/tiny-skia)
+    --headless           Run in headless mode without opening a GUI window
     --socket <PATH>      Custom Unix Domain Socket path for editor IPC
     -h, --help           Print help information
     -V, --version        Print version information
 
-VIM KEYBINDINGS (Modal Navigation):
+VIM KEYBINDINGS (Modal Navigation in GUI):
     h, j, k, l           Pan left, down, up, right
     +, -                 Zoom in, zoom out
     0                    Reset view (fit to screen)
-    p                    Pivot diagram direction (TD -> LR -> RL -> BT)
+    p, Tab               Pivot diagram direction (TD -> LR -> RL -> BT)
     n, N                 Select next / previous node
     / or f               Fuzzy search nodes
-    q                    Quit
+    Mouse Drag           Pan canvas
+    Mouse Wheel          Zoom in / out
+    q, Esc               Quit
 "#
     );
 }
@@ -54,6 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut file_path: Option<String> = None;
     let mut socket_path = default_socket_path();
     let mut force_software_render = false;
+    let mut headless = false;
 
     let mut i = 1;
     while i < args.len() {
@@ -68,6 +72,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             "--software-render" => {
                 force_software_render = true;
+            }
+            "--headless" => {
+                headless = true;
             }
             "--socket" => {
                 if i + 1 < args.len() {
@@ -95,7 +102,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some("-") | None => {
             if atty_is_terminal() {
                 // Interactive fallback sample if run without input in terminal
-                "flowchart TD\n    Editor[Neovim / Helix] -->|UDS JSON-RPC| MermCore[merm-core]\n    MermCore -->|resvg & WGPU| Canvas[120FPS GPU Canvas]\n    MermCore -->|CPU Fallback| Softbuffer[softbuffer]".to_string()
+                r#"classDiagram
+    direction LR
+    class BankAccount {
+        +String owner
+        -BigDecimal balance
+        +deposit(amount) bool
+        +withdraw(amount) bool
+    }
+    class CheckingAccount {
+        +BigDecimal overdraftLimit
+        +processCheck()
+    }
+    BankAccount <|-- CheckingAccount : inherits
+    BankAccount *-- Transaction : contains
+"#
+                .to_string()
             } else {
                 let mut buffer = String::new();
                 io::stdin().read_to_string(&mut buffer)?;
@@ -122,22 +144,32 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut app = AppState::new(content, force_software_render);
     log::info!("Status: {}", app.hud_status());
 
-    // Single non-blocking tick drain for CLI demonstration
-    while let Ok(cmd) = ipc_rx.try_recv() {
-        app.handle_ipc_command(cmd);
-    }
+    let has_display = env::var("WAYLAND_DISPLAY").is_ok() || env::var("DISPLAY").is_ok();
 
-    let frame = app.render_current_frame();
-    if let Some(res) = frame {
-        log::info!(
-            "Render frame passed: Backend={:?}, Objects={}",
-            res.backend,
-            res.rendered_objects
-        );
-    }
+    if headless || !has_display {
+        println!("\n[merm] Running in headless mode. Socket: {:?}", socket_path);
+        println!("[merm] Active HUD: {}", app.hud_status());
 
-    println!("\n[merm] Ready. Socket: {:?}", socket_path);
-    println!("[merm] Active HUD: {}", app.hud_status());
+        // Drain single tick
+        while let Ok(cmd) = ipc_rx.try_recv() {
+            app.handle_ipc_command(cmd);
+        }
+
+        let frame = app.render_current_frame();
+        if let Some(res) = frame {
+            log::info!(
+                "Render frame passed: Backend={:?}, Objects={}",
+                res.backend,
+                res.rendered_objects
+            );
+        }
+    } else {
+        println!("\n[merm] Launching interactive GUI window. Socket: {:?}", socket_path);
+        println!("[merm] Active HUD: {}", app.hud_status());
+
+        let window = MermAppWindow::new(app, Some(ipc_rx));
+        window.run()?;
+    }
 
     Ok(())
 }

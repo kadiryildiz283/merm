@@ -11,3 +11,5 @@ merm-ipc = { path = "../merm-ipc" }
 serde.workspace = true
 thiserror.workspace = true
 log.workspace = true
+winit = "0.30"
+softbuffer = "0.4"
