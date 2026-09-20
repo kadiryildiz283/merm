@@ -1,0 +1,175 @@
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ThemeId {
+    CatppuccinMocha,
+    TokyoNight,
+    Nord,
+    GruvboxDark,
+    Dracula,
+    CatppuccinLatte,
+}
+
+impl ThemeId {
+    pub fn next(&self) -> Self {
+        match self {
+            ThemeId::CatppuccinMocha => ThemeId::TokyoNight,
+            ThemeId::TokyoNight => ThemeId::Nord,
+            ThemeId::Nord => ThemeId::GruvboxDark,
+            ThemeId::GruvboxDark => ThemeId::Dracula,
+            ThemeId::Dracula => ThemeId::CatppuccinLatte,
+            ThemeId::CatppuccinLatte => ThemeId::CatppuccinMocha,
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name.to_lowercase().replace(['-', '_'], "").as_str() {
+            "catppuccin" | "catppuccinmocha" | "mocha" => Some(ThemeId::CatppuccinMocha),
+            "tokyonight" | "tokyo" => Some(ThemeId::TokyoNight),
+            "nord" => Some(ThemeId::Nord),
+            "gruvbox" | "gruvboxdark" => Some(ThemeId::GruvboxDark),
+            "dracula" => Some(ThemeId::Dracula),
+            "latte" | "catppuccinlatte" | "light" => Some(ThemeId::CatppuccinLatte),
+            _ => None,
+        }
+    }
+
+    pub fn palette(&self) -> ColorPalette {
+        match self {
+            ThemeId::CatppuccinMocha => ColorPalette {
+                name: "Catppuccin Mocha".to_string(),
+                background: "#1e1e2e".to_string(),
+                card_bg: "#313244".to_string(),
+                card_header: "#45475a".to_string(),
+                border: "#89b4fa".to_string(),
+                divider: "#585b70".to_string(),
+                text_main: "#cdd6f4".to_string(),
+                text_sub: "#bac2de".to_string(),
+                text_muted: "#6c7086".to_string(),
+                text_accent: "#f9e2af".to_string(),
+                public_vis: "#a6e3a1".to_string(),
+                private_vis: "#f38ba8".to_string(),
+                protected_vis: "#fab387".to_string(),
+                package_vis: "#cba6f7".to_string(),
+                edge_stroke: "#89b4fa".to_string(),
+                badge_bg: "#181825".to_string(),
+            },
+            ThemeId::TokyoNight => ColorPalette {
+                name: "Tokyo Night".to_string(),
+                background: "#1a1b26".to_string(),
+                card_bg: "#24283b".to_string(),
+                card_header: "#2f354f".to_string(),
+                border: "#7aa2f7".to_string(),
+                divider: "#414868".to_string(),
+                text_main: "#c0caf5".to_string(),
+                text_sub: "#a9b1d6".to_string(),
+                text_muted: "#565f89".to_string(),
+                text_accent: "#e0af68".to_string(),
+                public_vis: "#9ece6a".to_string(),
+                private_vis: "#f7768e".to_string(),
+                protected_vis: "#ff9e64".to_string(),
+                package_vis: "#bb9af7".to_string(),
+                edge_stroke: "#7aa2f7".to_string(),
+                badge_bg: "#16161e".to_string(),
+            },
+            ThemeId::Nord => ColorPalette {
+                name: "Nord".to_string(),
+                background: "#2e3440".to_string(),
+                card_bg: "#3b4252".to_string(),
+                card_header: "#434c5e".to_string(),
+                border: "#88c0d0".to_string(),
+                divider: "#4c566a".to_string(),
+                text_main: "#eceff4".to_string(),
+                text_sub: "#e5e9f0".to_string(),
+                text_muted: "#d8dee9".to_string(),
+                text_accent: "#ebcb8b".to_string(),
+                public_vis: "#a3be8c".to_string(),
+                private_vis: "#bf616a".to_string(),
+                protected_vis: "#d08770".to_string(),
+                package_vis: "#b48ead".to_string(),
+                edge_stroke: "#81a1c1".to_string(),
+                badge_bg: "#242933".to_string(),
+            },
+            ThemeId::GruvboxDark => ColorPalette {
+                name: "Gruvbox Dark".to_string(),
+                background: "#282828".to_string(),
+                card_bg: "#3c3836".to_string(),
+                card_header: "#504945".to_string(),
+                border: "#83a598".to_string(),
+                divider: "#665c54".to_string(),
+                text_main: "#ebdbb2".to_string(),
+                text_sub: "#d5c4a1".to_string(),
+                text_muted: "#928374".to_string(),
+                text_accent: "#fabd2f".to_string(),
+                public_vis: "#b8bb26".to_string(),
+                private_vis: "#fb4934".to_string(),
+                protected_vis: "#fe8019".to_string(),
+                package_vis: "#d3869b".to_string(),
+                edge_stroke: "#83a598".to_string(),
+                badge_bg: "#1d2021".to_string(),
+            },
+            ThemeId::Dracula => ColorPalette {
+                name: "Dracula".to_string(),
+                background: "#282a36".to_string(),
+                card_bg: "#44475a".to_string(),
+                card_header: "#6272a4".to_string(),
+                border: "#bd93f9".to_string(),
+                divider: "#6272a4".to_string(),
+                text_main: "#f8f8f2".to_string(),
+                text_sub: "#e2e2dc".to_string(),
+                text_muted: "#6272a4".to_string(),
+                text_accent: "#f1fa8c".to_string(),
+                public_vis: "#50fa7b".to_string(),
+                private_vis: "#ff5555".to_string(),
+                protected_vis: "#ffb86c".to_string(),
+                package_vis: "#ff79c6".to_string(),
+                edge_stroke: "#bd93f9".to_string(),
+                badge_bg: "#21222c".to_string(),
+            },
+            ThemeId::CatppuccinLatte => ColorPalette {
+                name: "Catppuccin Latte".to_string(),
+                background: "#eff1f5".to_string(),
+                card_bg: "#e6e9ef".to_string(),
+                card_header: "#dce0e8".to_string(),
+                border: "#1e66f5".to_string(),
+                divider: "#bcc0cc".to_string(),
+                text_main: "#4c4f69".to_string(),
+                text_sub: "#5c5f77".to_string(),
+                text_muted: "#9ca0b0".to_string(),
+                text_accent: "#df8e1d".to_string(),
+                public_vis: "#40a02b".to_string(),
+                private_vis: "#d20f39".to_string(),
+                protected_vis: "#fe640b".to_string(),
+                package_vis: "#8839ef".to_string(),
+                edge_stroke: "#1e66f5".to_string(),
+                badge_bg: "#ccd0da".to_string(),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ColorPalette {
+    pub name: String,
+    pub background: String,
+    pub card_bg: String,
+    pub card_header: String,
+    pub border: String,
+    pub divider: String,
+    pub text_main: String,
+    pub text_sub: String,
+    pub text_muted: String,
+    pub text_accent: String,
+    pub public_vis: String,
+    pub private_vis: String,
+    pub protected_vis: String,
+    pub package_vis: String,
+    pub edge_stroke: String,
+    pub badge_bg: String,
+}
+
+impl Default for ColorPalette {
+    fn default() -> Self {
+        ThemeId::CatppuccinMocha.palette()
+    }
+}

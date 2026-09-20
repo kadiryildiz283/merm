@@ -5,11 +5,13 @@ use std::time::Duration;
 use crate::ast_rewriter::LayoutDirection;
 use crate::class_diagram::ClassDiagramParser;
 use crate::error::CoreError;
+use crate::theme::ColorPalette;
 
 pub struct LayoutEngine {
     timeout: Duration,
     #[allow(dead_code)]
     memory_limit_bytes: usize,
+    pub palette: ColorPalette,
 }
 
 #[derive(Debug, Clone)]
@@ -42,15 +44,17 @@ impl Default for LayoutEngine {
         Self {
             timeout: Duration::from_millis(2000),
             memory_limit_bytes: 32 * 1024 * 1024, // 32 MB
+            palette: ColorPalette::default(),
         }
     }
 }
 
 impl LayoutEngine {
-    pub fn new(timeout: Duration, memory_limit_bytes: usize) -> Self {
+    pub fn new(timeout: Duration, memory_limit_bytes: usize, palette: ColorPalette) -> Self {
         Self {
             timeout,
             memory_limit_bytes,
+            palette,
         }
     }
 
@@ -60,11 +64,12 @@ impl LayoutEngine {
         let (tx, rx) = channel();
         let source_owned = source.to_string();
         let timeout = self.timeout;
+        let palette = self.palette.clone();
 
         thread::Builder::new()
             .name("layout-worker".to_string())
             .spawn(move || {
-                let res = Self::render_internal(&source_owned);
+                let res = Self::render_internal(&source_owned, &palette);
                 let _ = tx.send(res);
             })
             .map_err(|_| CoreError::SyntaxError("Failed to spawn layout thread".to_string()))?;
@@ -78,10 +83,10 @@ impl LayoutEngine {
         }
     }
 
-    fn render_internal(source: &str) -> Result<RenderedDiagram, CoreError> {
+    fn render_internal(source: &str, palette: &ColorPalette) -> Result<RenderedDiagram, CoreError> {
         // 1. If it's a class diagram, dispatch to ClassDiagramParser
         if ClassDiagramParser::is_class_diagram(source) {
-            return ClassDiagramParser::parse_and_render(source, None);
+            return ClassDiagramParser::parse_and_render(source, None, Some(palette));
         }
 
         // 2. Flowchart / General diagram layout
@@ -229,15 +234,18 @@ impl LayoutEngine {
             total_width, total_height, total_width, total_height
         );
 
-        // Marker for arrow
-        svg.push_str(r##"
+        // Marker for arrow using theme
+        svg.push_str(&format!(
+            r##"
         <defs>
             <marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
-                <path d="M 0 1 L 10 5 L 0 9 z" fill="#89b4fa"/>
+                <path d="M 0 1 L 10 5 L 0 9 z" fill="{}"/>
             </marker>
         </defs>
-        <rect width="100%" height="100%" fill="#1e1e2e"/>
-        "##);
+        <rect width="100%" height="100%" fill="{}"/>
+        "##,
+            palette.edge_stroke, palette.background
+        ));
 
         // Draw edges
         for edge in &edges {
@@ -255,16 +263,17 @@ impl LayoutEngine {
                 let mid_y = (sy + ey) / 2.0;
 
                 svg.push_str(&format!(
-                    r##"<path d="M {} {} C {} {}, {} {}, {} {}" fill="none" stroke="#89b4fa" stroke-width="2" marker-end="url(#flow-arrow)"/>"##,
-                    sx, sy, mid_x, sy, mid_x, ey, ex, ey
+                    r##"<path d="M {} {} C {} {}, {} {}, {} {}" fill="none" stroke="{}" stroke-width="2" marker-end="url(#flow-arrow)"/>"##,
+                    sx, sy, mid_x, sy, mid_x, ey, ex, ey, palette.edge_stroke
                 ));
 
                 if let Some(ref lbl) = edge.label {
                     svg.push_str(&format!(
-                        r##"<rect x="{}" y="{}" width="{}" height="18" rx="4" fill="#181825" opacity="0.9"/>
-                        <text x="{}" y="{}" fill="#cdd6f4" font-family="monospace" font-size="11" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
+                        r##"<rect x="{}" y="{}" width="{}" height="18" rx="4" fill="{}" opacity="0.95"/>
+                        <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
                         mid_x - (lbl.len() * 4) as f32 - 4.0, mid_y - 9.0, (lbl.len() * 8 + 8) as f32,
-                        mid_x, mid_y, lbl
+                        palette.badge_bg,
+                        mid_x, mid_y, palette.text_main, lbl
                     ));
                 }
             }
@@ -274,16 +283,19 @@ impl LayoutEngine {
         for node in &nodes {
             svg.push_str(&format!(
                 r##"<g id="node_{}" class="node">
-                <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="#313244" stroke="#89b4fa" stroke-width="2"/>
-                <text x="{}" y="{}" fill="#cdd6f4" font-family="monospace" font-size="14" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>
+                <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}" stroke="{}" stroke-width="2"/>
+                <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>
                 </g>"##,
                 node.id,
                 node.x,
                 node.y,
                 node.width,
                 node.height,
+                palette.card_bg,
+                palette.border,
                 node.x + node.width / 2.0,
                 node.y + node.height / 2.0,
+                palette.text_main,
                 node.label
             ));
         }

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use crate::ast_rewriter::LayoutDirection;
 use crate::engine::{DiagramNode, RenderedDiagram};
 use crate::error::CoreError;
+use crate::theme::ColorPalette;
 
 #[derive(Debug, Clone)]
 pub struct ClassMember {
@@ -47,7 +48,13 @@ impl ClassDiagramParser {
         })
     }
 
-    pub fn parse_and_render(source: &str, dir_override: Option<LayoutDirection>) -> Result<RenderedDiagram, CoreError> {
+    pub fn parse_and_render(
+        source: &str,
+        dir_override: Option<LayoutDirection>,
+        palette: Option<&ColorPalette>,
+    ) -> Result<RenderedDiagram, CoreError> {
+        let default_palette = ColorPalette::default();
+        let active_palette = palette.unwrap_or(&default_palette);
         let mut classes: HashMap<String, ClassDef> = HashMap::new();
         let mut relations: Vec<ClassRelation> = Vec::new();
         let mut current_dir = LayoutDirection::TD;
@@ -176,7 +183,7 @@ impl ClassDiagramParser {
         }
 
         let direction = dir_override.unwrap_or(current_dir);
-        Self::layout_and_render_svg(&classes, &relations, direction)
+        Self::layout_and_render_svg(&classes, &relations, direction, active_palette)
     }
 
     fn parse_relation(line: &str) -> Option<ClassRelation> {
@@ -226,8 +233,8 @@ impl ClassDiagramParser {
         classes: &HashMap<String, ClassDef>,
         relations: &[ClassRelation],
         dir: LayoutDirection,
+        palette: &ColorPalette,
     ) -> Result<RenderedDiagram, CoreError> {
-        // Compute ranks for hierarchy
         let mut class_list: Vec<&ClassDef> = classes.values().collect();
         class_list.sort_by(|a, b| a.id.cmp(&b.id));
 
@@ -239,7 +246,6 @@ impl ClassDiagramParser {
             *to_rank = (*to_rank).max(from_rank + 1);
         }
 
-        // Group classes into ranks
         let mut rank_groups: HashMap<usize, Vec<&ClassDef>> = HashMap::new();
         for c in &class_list {
             let r = *ranks.get(&c.id).unwrap_or(&0);
@@ -253,7 +259,6 @@ impl ClassDiagramParser {
             }
         }
 
-        // Calculate card dimensions
         let mut node_positions: HashMap<String, (f32, f32, f32, f32)> = HashMap::new();
         let mut nodes: Vec<DiagramNode> = Vec::new();
 
@@ -319,35 +324,41 @@ impl ClassDiagramParser {
             ((max_cross + margin_x).max(900.0), (current_offset + margin_y).max(600.0))
         };
 
-        // Construct SVG
         let mut svg = format!(
             r##"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">"##,
             total_w, total_h, total_w, total_h
         );
 
-        // Marker Definitions (UML heads)
-        svg.push_str(r##"
+        // Marker Definitions with Theme Colors
+        svg.push_str(&format!(
+            r##"
         <defs>
             <marker id="inheritance" viewBox="0 0 16 12" refX="15" refY="6" markerWidth="16" markerHeight="12" orient="auto">
-                <polygon points="0 0, 15 6, 0 12" fill="#313244" stroke="#89b4fa" stroke-width="2"/>
+                <polygon points="0 0, 15 6, 0 12" fill="{}" stroke="{}" stroke-width="2"/>
             </marker>
             <marker id="composition" viewBox="0 0 16 12" refX="16" refY="6" markerWidth="16" markerHeight="12" orient="auto">
-                <polygon points="0 6, 8 0, 16 6, 8 12" fill="#89b4fa" stroke="#89b4fa"/>
+                <polygon points="0 6, 8 0, 16 6, 8 12" fill="{}" stroke="{}"/>
             </marker>
             <marker id="aggregation" viewBox="0 0 16 12" refX="16" refY="6" markerWidth="16" markerHeight="12" orient="auto">
-                <polygon points="0 6, 8 0, 16 6, 8 12" fill="#313244" stroke="#89b4fa" stroke-width="2"/>
+                <polygon points="0 6, 8 0, 16 6, 8 12" fill="{}" stroke="{}" stroke-width="2"/>
             </marker>
             <marker id="association" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto">
-                <polyline points="0 1, 10 5, 0 9" fill="none" stroke="#89b4fa" stroke-width="2"/>
+                <polyline points="0 1, 10 5, 0 9" fill="none" stroke="{}" stroke-width="2"/>
             </marker>
             <marker id="dependency" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto">
-                <polyline points="0 1, 10 5, 0 9" fill="none" stroke="#a6adc8" stroke-width="2"/>
+                <polyline points="0 1, 10 5, 0 9" fill="none" stroke="{}" stroke-width="2"/>
             </marker>
         </defs>
-        "##);
+        "##,
+            palette.card_bg, palette.border,
+            palette.border, palette.border,
+            palette.card_bg, palette.border,
+            palette.border,
+            palette.text_muted
+        ));
 
         // Background
-        svg.push_str(&format!(r##"<rect width="{}" height="{}" fill="#1e1e2e"/>"##, total_w, total_h));
+        svg.push_str(&format!(r##"<rect width="{}" height="{}" fill="{}"/>"##, total_w, total_h, palette.background));
 
         // Draw Relationships
         for rel in relations {
@@ -371,7 +382,6 @@ impl ClassDiagramParser {
                     RelationKind::Link => "",
                 };
 
-                // Bezier path for smooth connectors
                 let mid_x = (start_x + end_x) / 2.0;
                 let mid_y = (start_y + end_y) / 2.0;
 
@@ -382,16 +392,17 @@ impl ClassDiagramParser {
                 };
 
                 svg.push_str(&format!(
-                    r##"<path d="{}" fill="none" stroke="#89b4fa" stroke-width="2" {}/>"##,
-                    path_d, marker
+                    r##"<path d="{}" fill="none" stroke="{}" stroke-width="2" {}/>"##,
+                    path_d, palette.edge_stroke, marker
                 ));
 
                 if let Some(ref lbl) = rel.label {
                     svg.push_str(&format!(
-                        r##"<rect x="{}" y="{}" width="{}" height="20" rx="4" fill="#181825" opacity="0.9"/>
-                        <text x="{}" y="{}" fill="#cdd6f4" font-family="monospace" font-size="11" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
+                        r##"<rect x="{}" y="{}" width="{}" height="20" rx="4" fill="{}" opacity="0.95"/>
+                        <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
                         mid_x - (lbl.len() * 4) as f32 - 6.0, mid_y - 10.0, (lbl.len() * 8 + 12) as f32,
-                        mid_x, mid_y, lbl
+                        palette.badge_bg,
+                        mid_x, mid_y, palette.text_main, lbl
                     ));
                 }
             }
@@ -402,29 +413,29 @@ impl ClassDiagramParser {
             if let Some(&(x, y, w, h)) = node_positions.get(&class.id) {
                 svg.push_str(&format!(
                     r##"<g id="node_{}" class="class-node">
-                    <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="#313244" stroke="#89b4fa" stroke-width="2"/>
-                    <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="#45475a"/>
-                    <line x1="{}" y1="{}" x2="{}" y2="{}" stroke="#89b4fa" stroke-width="1.5"/>"##,
+                    <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}" stroke="{}" stroke-width="2"/>
+                    <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}"/>
+                    <line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1.5"/>"##,
                     class.id,
-                    x, y, w, h,
-                    x, y, w, header_h,
-                    x, y + header_h, x + w, y + header_h
+                    x, y, w, h, palette.card_bg, palette.border,
+                    x, y, w, header_h, palette.card_header,
+                    x, y + header_h, x + w, y + header_h, palette.border
                 ));
 
                 // Stereotype
                 if let Some(ref stereo) = class.stereotype {
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="#f9e2af" font-family="monospace" font-size="11" text-anchor="middle" dominant-baseline="middle">&laquo;{}&raquo;</text>"##,
-                        x + w / 2.0, y + 14.0, stereo
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" text-anchor="middle" dominant-baseline="middle">&laquo;{}&raquo;</text>"##,
+                        x + w / 2.0, y + 14.0, palette.text_accent, stereo
                     ));
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="#cdd6f4" font-family="monospace" font-size="14" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
-                        x + w / 2.0, y + 30.0, class.id
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
+                        x + w / 2.0, y + 30.0, palette.text_main, class.id
                     ));
                 } else {
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="#cdd6f4" font-family="monospace" font-size="15" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
-                        x + w / 2.0, y + 22.0, class.id
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
+                        x + w / 2.0, y + 22.0, palette.text_main, class.id
                     ));
                 }
 
@@ -432,23 +443,23 @@ impl ClassDiagramParser {
                 let mut cur_y = y + header_h + 16.0;
                 if class.attributes.is_empty() {
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="#6c7086" font-family="monospace" font-size="12" font-style="italic">  (no attributes)</text>"##,
-                        x + 16.0, cur_y
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-style="italic">  (no attributes)</text>"##,
+                        x + 16.0, cur_y, palette.text_muted
                     ));
                     cur_y += 20.0;
                 } else {
                     for attr in &class.attributes {
                         let vis_color = match attr.visibility {
-                            '+' => "#a6e3a1", // green
-                            '-' => "#f38ba8", // red
-                            '#' => "#fab387", // peach
-                            _ => "#cba6f7",   // mauve
+                            '+' => &palette.public_vis,
+                            '-' => &palette.private_vis,
+                            '#' => &palette.protected_vis,
+                            _ => &palette.package_vis,
                         };
                         svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12" font-weight="bold">{}</text>
-                            <text x="{}" y="{}" fill="#bac2de" font-family="monospace" font-size="12">{}</text>"##,
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-weight="bold">{}</text>
+                            <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12">{}</text>"##,
                             x + 14.0, cur_y, vis_color, attr.visibility,
-                            x + 28.0, cur_y, attr.raw
+                            x + 28.0, cur_y, palette.text_sub, attr.raw
                         ));
                         cur_y += 20.0;
                     }
@@ -456,30 +467,30 @@ impl ClassDiagramParser {
 
                 // Divider line between attributes and methods
                 svg.push_str(&format!(
-                    r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="#585b70" stroke-width="1"/>"##,
-                    x, cur_y, x + w, cur_y
+                    r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
+                    x, cur_y, x + w, cur_y, palette.divider
                 ));
                 cur_y += 16.0;
 
                 // Methods
                 if class.methods.is_empty() {
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="#6c7086" font-family="monospace" font-size="12" font-style="italic">  (no methods)</text>"##,
-                        x + 16.0, cur_y
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-style="italic">  (no methods)</text>"##,
+                        x + 16.0, cur_y, palette.text_muted
                     ));
                 } else {
                     for meth in &class.methods {
                         let vis_color = match meth.visibility {
-                            '+' => "#a6e3a1",
-                            '-' => "#f38ba8",
-                            '#' => "#fab387",
-                            _ => "#cba6f7",
+                            '+' => &palette.public_vis,
+                            '-' => &palette.private_vis,
+                            '#' => &palette.protected_vis,
+                            _ => &palette.package_vis,
                         };
                         svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12" font-weight="bold">{}</text>
-                            <text x="{}" y="{}" fill="#89dceb" font-family="monospace" font-size="12">{}</text>"##,
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-weight="bold">{}</text>
+                            <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12">{}</text>"##,
                             x + 14.0, cur_y, vis_color, meth.visibility,
-                            x + 28.0, cur_y, meth.raw
+                            x + 28.0, cur_y, palette.text_main, meth.raw
                         ));
                         cur_y += 20.0;
                     }

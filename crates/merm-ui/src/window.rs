@@ -13,6 +13,11 @@ use winit::window::{Window, WindowId};
 use crate::app_state::AppState;
 use crate::modal::UiAction;
 
+fn parse_hex_color(hex: &str) -> u32 {
+    let clean = hex.trim_start_matches('#');
+    u32::from_str_radix(clean, 16).unwrap_or(0x1e1e2e)
+}
+
 pub struct MermAppWindow {
     app_state: AppState,
     ipc_rx: Option<Receiver<EditorCommand>>,
@@ -81,6 +86,9 @@ impl MermAppWindow {
             }
         }
 
+        let bg_color = parse_hex_color(&self.app_state.theme.palette().background);
+        let hud_color = parse_hex_color(&self.app_state.theme.palette().badge_bg);
+
         // Rasterize active diagram SVG using tiny-skia + resvg
         if let Some(ref diagram) = self.app_state.current_diagram {
             let _ = self.rasterizer.rasterize(
@@ -91,10 +99,10 @@ impl MermAppWindow {
                 &mut buffer,
             );
         } else {
-            buffer.fill(0x1e1e2e);
+            buffer.fill(bg_color);
         }
 
-        // Draw HUD bar at the bottom: 28px height
+        // Draw HUD bar at the bottom: 28px height with current theme color
         let hud_height = 28u32;
         if height > hud_height {
             let start_y = height - hud_height;
@@ -102,7 +110,7 @@ impl MermAppWindow {
                 for x in 0..width {
                     let idx = (y * width + x) as usize;
                     if idx < buffer.len() {
-                        buffer[idx] = 0x181825; // Catppuccin Mantle
+                        buffer[idx] = hud_color;
                     }
                 }
             }
@@ -116,8 +124,9 @@ impl MermAppWindow {
 impl ApplicationHandler for MermAppWindow {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
+            let initial_title = format!("merm | {}", self.app_state.hud_status());
             let win_attr = Window::default_attributes()
-                .with_title("merm - Native Linux Diagram Viewer")
+                .with_title(initial_title)
                 .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0));
 
             let window = Arc::new(

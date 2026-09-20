@@ -58,8 +58,8 @@ classDiagram
     Animal <|-- Duck
 "#;
 
-    let rendered_td = ClassDiagramParser::parse_and_render(source, Some(LayoutDirection::TD)).unwrap();
-    let rendered_lr = ClassDiagramParser::parse_and_render(source, Some(LayoutDirection::LR)).unwrap();
+    let rendered_td = ClassDiagramParser::parse_and_render(source, Some(LayoutDirection::TD), None).unwrap();
+    let rendered_lr = ClassDiagramParser::parse_and_render(source, Some(LayoutDirection::LR), None).unwrap();
 
     assert!(rendered_td.width > 0.0);
     assert!(rendered_lr.width > 0.0);

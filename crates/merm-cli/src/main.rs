@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::mpsc::channel;
 
+use merm_core::ThemeId;
 use merm_ipc::IpcServer;
 use merm_ui::{AppState, MermAppWindow};
 
@@ -19,6 +20,47 @@ fn default_socket_path() -> PathBuf {
     }
 }
 
+fn config_path() -> PathBuf {
+    if let Ok(config_home) = env::var("XDG_CONFIG_HOME") {
+        PathBuf::from(config_home).join("merm").join("config.toml")
+    } else if let Ok(home) = env::var("HOME") {
+        PathBuf::from(home).join(".config").join("merm").join("config.toml")
+    } else {
+        PathBuf::from(".config/merm/config.toml")
+    }
+}
+
+fn load_theme_from_config() -> Option<ThemeId> {
+    let path = config_path();
+    if path.exists() {
+        if let Ok(content) = fs::read_to_string(&path) {
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("theme") {
+                    if let Some(val) = trimmed.split('=').nth(1) {
+                        let name = val.trim().trim_matches('"').trim_matches('\'');
+                        return ThemeId::from_name(name);
+                    }
+                }
+            }
+        }
+    } else {
+        // Create default config file template
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+            let default_config = r#"# merm configuration file
+# Default theme: catppuccin-mocha, tokyo-night, nord, gruvbox, dracula, latte
+theme = "catppuccin-mocha"
+
+# Default diagram layout direction (TD, LR, RL, BT)
+direction = "TD"
+"#;
+            let _ = fs::write(&path, default_config);
+        }
+    }
+    None
+}
+
 fn print_usage() {
     eprintln!(
         r#"merm: High-Performance Native Linux Diagram Viewer for Modal Editors
@@ -30,6 +72,7 @@ ARGS:
     <FILE>    Path to Markdown or Mermaid file (reads from stdin if '-' or omitted)
 
 OPTIONS:
+    -t, --theme <NAME>   Set color theme (catppuccin, tokyo-night, nord, gruvbox, dracula, latte)
     --software-render    Force CPU software rasterization fallback (softbuffer/tiny-skia)
     --headless           Run in headless mode without opening a GUI window
     --socket <PATH>      Custom Unix Domain Socket path for editor IPC
@@ -41,11 +84,15 @@ VIM KEYBINDINGS (Modal Navigation in GUI):
     +, -                 Zoom in, zoom out
     0                    Reset view (fit to screen)
     p, Tab               Pivot diagram direction (TD -> LR -> RL -> BT)
+    t                    Cycle color themes (Mocha -> Tokyo Night -> Nord -> Gruvbox -> Dracula -> Latte)
     n, N                 Select next / previous node
     / or f               Fuzzy search nodes
     Mouse Drag           Pan canvas
     Mouse Wheel          Zoom in / out
     q, Esc               Quit
+
+CONFIG:
+    ~/.config/merm/config.toml
 "#
     );
 }
@@ -58,6 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut socket_path = default_socket_path();
     let mut force_software_render = false;
     let mut headless = false;
+    let mut cli_theme: Option<ThemeId> = None;
 
     let mut i = 1;
     while i < args.len() {
@@ -69,6 +117,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "-V" | "--version" => {
                 println!("merm v0.1.0 (Linux x86_64/aarch64 native)");
                 return Ok(());
+            }
+            "-t" | "--theme" => {
+                if i + 1 < args.len() {
+                    cli_theme = ThemeId::from_name(&args[i + 1]);
+                    if cli_theme.is_none() {
+                        eprintln!("Unknown theme '{}'. Options: catppuccin, tokyo-night, nord, gruvbox, dracula, latte", args[i + 1]);
+                    }
+                    i += 1;
+                } else {
+                    eprintln!("Error: --theme requires a theme name");
+                    process::exit(1);
+                }
             }
             "--software-render" => {
                 force_software_render = true;
@@ -96,6 +156,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         i += 1;
     }
+
+    // Determine active theme (CLI override > Config file > Default Catppuccin Mocha)
+    let active_theme = cli_theme.or_else(load_theme_from_config).unwrap_or(ThemeId::CatppuccinMocha);
 
     // Read diagram content
     let content = match file_path.as_deref() {
@@ -140,8 +203,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
-    // Initialize AppState
-    let mut app = AppState::new(content, force_software_render);
+    // Initialize AppState with active theme
+    let mut app = AppState::with_theme(content, force_software_render, active_theme);
     log::info!("Status: {}", app.hud_status());
 
     let has_display = env::var("WAYLAND_DISPLAY").is_ok() || env::var("DISPLAY").is_ok();

@@ -12,6 +12,7 @@ pub enum UiAction {
     Zoom { factor: f32 },
     ResetView,
     PivotDirection,
+    CycleTheme,
     SetMode(UiMode),
     SelectNextNode,
     SelectPrevNode,
@@ -45,6 +46,7 @@ impl ModalController {
                 '-' | '_' => UiAction::Zoom { factor: 0.85 },
                 '0' => UiAction::ResetView,
                 'p' => UiAction::PivotDirection,
+                't' => UiAction::CycleTheme,
                 'n' | '\t' => UiAction::SelectNextNode,
                 'N' => UiAction::SelectPrevNode,
                 '/' | 'f' => {

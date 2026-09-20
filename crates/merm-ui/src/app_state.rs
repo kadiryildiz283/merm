@@ -1,4 +1,5 @@
-use merm_core::{AstRewriter, DiagramExtractor, LayoutDirection, LayoutEngine, RenderedDiagram};
+use std::time::Duration;
+use merm_core::{AstRewriter, DiagramExtractor, LayoutDirection, LayoutEngine, RenderedDiagram, ThemeId};
 use merm_ipc::EditorCommand;
 use merm_render::{BackendType, RenderEngine, Transform2D};
 
@@ -12,12 +13,17 @@ pub struct AppState {
     pub modal: ModalController,
     pub render_engine: RenderEngine,
     pub active_node_id: Option<String>,
+    pub theme: ThemeId,
     pub status_message: String,
     pub is_running: bool,
 }
 
 impl AppState {
     pub fn new(source: String, force_software_render: bool) -> Self {
+        Self::with_theme(source, force_software_render, ThemeId::CatppuccinMocha)
+    }
+
+    pub fn with_theme(source: String, force_software_render: bool, theme: ThemeId) -> Self {
         let render_engine = if force_software_render {
             RenderEngine::force_software()
         } else {
@@ -32,6 +38,7 @@ impl AppState {
             modal: ModalController::default(),
             render_engine,
             active_node_id: None,
+            theme,
             status_message: "Ready".to_string(),
             is_running: true,
         };
@@ -41,7 +48,11 @@ impl AppState {
     }
 
     pub fn recalculate_diagram(&mut self) {
-        let engine = LayoutEngine::default();
+        let engine = LayoutEngine::new(
+            Duration::from_millis(2000),
+            32 * 1024 * 1024,
+            self.theme.palette(),
+        );
         let extracted = DiagramExtractor::extract(&self.diagram_source);
 
         let source_to_render = match extracted {
@@ -122,6 +133,11 @@ impl AppState {
                 self.recalculate_diagram();
                 self.status_message = format!("Pivoted direction to {}", next_dir.as_str());
             }
+            UiAction::CycleTheme => {
+                self.theme = self.theme.next();
+                self.recalculate_diagram();
+                self.status_message = format!("Theme: {}", self.theme.palette().name);
+            }
             UiAction::SelectNextNode => {
                 if let Some(ref diag) = self.current_diagram {
                     if !diag.nodes.is_empty() {
@@ -183,8 +199,8 @@ impl AppState {
         };
 
         format!(
-            "[MODE: {}] [{}] [Zoom: {:.1}x] | {}",
-            mode_str, backend_str, self.transform.scale, self.status_message
+            "[MODE: {}] [{}] [{}] [Zoom: {:.1}x] | {}",
+            mode_str, self.theme.palette().name, backend_str, self.transform.scale, self.status_message
         )
     }
 }
