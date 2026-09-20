@@ -53,6 +53,22 @@ pub enum Command {
     },
     /// Shows available commands and usage
     Help,
+    /// Quits the application (:q, :quit, :exit)
+    Quit,
+    /// Saves the diagram source and project manifest (:w, :write)
+    Save,
+    /// Saves and quits the application (:wq, :x)
+    SaveAndQuit,
+    /// Changes theme (:theme <name>)
+    Theme(String),
+    /// Changes layout direction (:dir <td|lr|bt|rl>)
+    Dir(String),
+    /// Fits diagram comfortably to viewport (:fit)
+    Fit,
+    /// Resets pan and zoom (:reset)
+    Reset,
+    /// Clears report buffer and returns to normal view (:clear)
+    Clear,
     /// Custom or unrecognized command
     Custom(String),
 }
@@ -163,7 +179,15 @@ impl Command {
                     input: input_str,
                 }
             }
-            "help" => Command::Help,
+            "help" | "h" => Command::Help,
+            "q" | "quit" | "q!" | "exit" => Command::Quit,
+            "w" | "write" | "save" => Command::Save,
+            "wq" | "x" | "x!" => Command::SaveAndQuit,
+            "theme" => Command::Theme(remainder),
+            "dir" | "direction" => Command::Dir(remainder),
+            "fit" | "fitview" => Command::Fit,
+            "reset" => Command::Reset,
+            "clear" | "cls" => Command::Clear,
             _ => Command::Custom(input.to_string()),
         }
     }
@@ -244,5 +268,17 @@ mod tests {
                 value: None
             }
         );
+        assert_eq!(Command::parse(":q"), Command::Quit);
+        assert_eq!(Command::parse(":quit"), Command::Quit);
+        assert_eq!(Command::parse(":w"), Command::Save);
+        assert_eq!(Command::parse(":wq"), Command::SaveAndQuit);
+        assert_eq!(
+            Command::parse(":theme mocha"),
+            Command::Theme("mocha".to_string())
+        );
+        assert_eq!(Command::parse(":dir LR"), Command::Dir("LR".to_string()));
+        assert_eq!(Command::parse(":fit"), Command::Fit);
+        assert_eq!(Command::parse(":reset"), Command::Reset);
+        assert_eq!(Command::parse(":clear"), Command::Clear);
     }
 }

@@ -34,6 +34,7 @@ pub struct ModalController {
     pub command_buffer: String,
     pub test_input_buffer: String,
     pub active_test_node_id: Option<String>,
+    pub report_scroll_offset: usize,
 }
 
 impl Default for ModalController {
@@ -44,6 +45,7 @@ impl Default for ModalController {
             command_buffer: String::new(),
             test_input_buffer: String::new(),
             active_test_node_id: None,
+            report_scroll_offset: 0,
         }
     }
 }
@@ -175,7 +177,51 @@ impl ModalController {
                     UiAction::None
                 }
             }
-            UiMode::Report | UiMode::Pan | UiMode::Jump => {
+            UiMode::Report => match key {
+                'j' => {
+                    self.report_scroll_offset = self.report_scroll_offset.saturating_add(1);
+                    UiAction::None
+                }
+                'k' => {
+                    self.report_scroll_offset = self.report_scroll_offset.saturating_sub(1);
+                    UiAction::None
+                }
+                'd' | 'J' => {
+                    self.report_scroll_offset = self.report_scroll_offset.saturating_add(10);
+                    UiAction::None
+                }
+                'u' | 'K' => {
+                    self.report_scroll_offset = self.report_scroll_offset.saturating_sub(10);
+                    UiAction::None
+                }
+                'g' => {
+                    self.report_scroll_offset = 0;
+                    UiAction::None
+                }
+                'G' => {
+                    self.report_scroll_offset = usize::MAX / 2;
+                    UiAction::None
+                }
+                ':' | '&' => {
+                    self.mode = UiMode::Command;
+                    self.command_buffer.clear();
+                    self.command_buffer.push(key);
+                    UiAction::SetMode(UiMode::Command)
+                }
+                'i' | 'a' => {
+                    self.mode = UiMode::Command;
+                    self.command_buffer.clear();
+                    self.command_buffer.push('&');
+                    UiAction::SetMode(UiMode::Command)
+                }
+                'o' => UiAction::ExecuteCommand("&ok".to_string()),
+                'q' | '\x1b' => {
+                    self.mode = UiMode::Normal;
+                    UiAction::SetMode(UiMode::Normal)
+                }
+                _ => UiAction::None,
+            },
+            UiMode::Pan | UiMode::Jump => {
                 if key == '\x1b' || key == 'q' || key == '\n' || key == '\r' {
                     self.mode = UiMode::Normal;
                     UiAction::SetMode(UiMode::Normal)
@@ -263,5 +309,47 @@ mod tests {
             controller.handle_key('\x1b', true),
             UiAction::SetMode(UiMode::Normal)
         );
+    }
+
+    #[test]
+    fn test_modal_report_scrolling_and_keys() {
+        let mut controller = ModalController {
+            mode: UiMode::Report,
+            ..Default::default()
+        };
+        assert_eq!(controller.report_scroll_offset, 0);
+
+        // j scrolls down
+        controller.handle_key('j', false);
+        assert_eq!(controller.report_scroll_offset, 1);
+
+        // d scrolls down 10
+        controller.handle_key('d', false);
+        assert_eq!(controller.report_scroll_offset, 11);
+
+        // k scrolls up
+        controller.handle_key('k', false);
+        assert_eq!(controller.report_scroll_offset, 10);
+
+        // u scrolls up 10
+        controller.handle_key('u', false);
+        assert_eq!(controller.report_scroll_offset, 0);
+
+        // g resets to top
+        controller.handle_key('j', false);
+        controller.handle_key('j', false);
+        assert_eq!(controller.report_scroll_offset, 2);
+        controller.handle_key('g', false);
+        assert_eq!(controller.report_scroll_offset, 0);
+
+        // 'o' triggers &ok command
+        let action = controller.handle_key('o', false);
+        assert_eq!(action, UiAction::ExecuteCommand("&ok".to_string()));
+
+        // ':' transitions to Command mode
+        let action = controller.handle_key(':', false);
+        assert_eq!(action, UiAction::SetMode(UiMode::Command));
+        assert_eq!(controller.mode, UiMode::Command);
+        assert_eq!(controller.command_buffer, ":");
     }
 }

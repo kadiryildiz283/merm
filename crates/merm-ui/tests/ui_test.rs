@@ -162,3 +162,97 @@ fn test_overlay_svg_validity_and_rasterization() {
         res.err()
     );
 }
+
+#[test]
+fn test_overlay_svg_report_mode_rasterization() {
+    let source = "classDiagram\n    class Architecture\n".to_string();
+    let mut app = AppState::new(source, false);
+
+    // Create a 60-line architectural report with markdown, status, and code blocks
+    let mut report =
+        String::from("# Comprehensive Architecture Audit\n\n=== Analysis Results ===\n");
+    for i in 1..=50 {
+        report.push_str(&format!(
+            "* Item {}: Status: PASS (Node verified successfully)\n",
+            i
+        ));
+    }
+    report.push_str("```mermaid\nclassDiagram\n  class NewService\n```\n");
+
+    app.show_report(report);
+    assert_eq!(app.modal.mode, merm_ui::UiMode::Report);
+    assert_eq!(app.modal.report_scroll_offset, 0);
+
+    // Generate overlay SVG in Report mode
+    let overlay_svg = merm_ui::MermAppWindow::build_overlay_svg(&app, 1280, 720).unwrap();
+    assert!(overlay_svg.contains("AI Architecture &amp; Diagnostic Buffer"));
+    assert!(overlay_svg.contains("[AI Chat Buffer]"));
+
+    // Rasterize overlay to verify no SVG parsing errors
+    let mut buffer = vec![0u32; 1280 * 720];
+    let rasterizer = merm_render::SvgRasterizer::new();
+    let res = rasterizer.rasterize_overlay(&overlay_svg, 1280, 720, &mut buffer);
+    assert!(
+        res.is_ok(),
+        "Report mode split buffer SVG must parse and rasterize without errors: {:?}",
+        res.err()
+    );
+
+    // Test scrolling in Report mode
+    app.modal.report_scroll_offset = 25;
+    let scrolled_svg = merm_ui::MermAppWindow::build_overlay_svg(&app, 1280, 720).unwrap();
+    let res_scrolled = rasterizer.rasterize_overlay(&scrolled_svg, 1280, 720, &mut buffer);
+    assert!(res_scrolled.is_ok());
+}
+
+#[test]
+fn test_vim_commands_execution() {
+    let source = "classDiagram\n    class Service\n".to_string();
+    let mut app = AppState::new(source, false);
+
+    // 1. :theme command
+    app.execute_command_str(":theme dracula");
+    assert_eq!(app.theme, merm_core::ThemeId::Dracula);
+
+    // 2. :dir command
+    app.execute_command_str(":dir LR");
+    assert_eq!(app.active_direction, merm_core::LayoutDirection::LR);
+
+    // 3. :fit command
+    app.execute_command_str(":fit");
+    assert!(app.status_message.contains("Diagram view fitted"));
+
+    // 4. :reset command
+    app.execute_command_str(":reset");
+    assert_eq!(app.status_message, "Reset view transform");
+
+    // 5. :clear command
+    app.show_report("Temporary Report".to_string());
+    assert_eq!(app.modal.mode, merm_ui::UiMode::Report);
+    app.execute_command_str(":clear");
+    assert_eq!(app.modal.mode, merm_ui::UiMode::Normal);
+    assert!(app.report_content.is_none());
+
+    // 6. :q command
+    assert!(app.is_running);
+    app.execute_command_str(":q");
+    assert!(!app.is_running);
+}
+
+#[test]
+fn test_diagram_scaling_on_large_graph() {
+    let mut transform = merm_render::Transform2D::default();
+
+    // Large diagram (e.g. 126 classes in merm project: 4500x3200px)
+    transform.fit_to_viewport(4500.0, 3200.0, 1280.0, 720.0);
+
+    // Must be clamped to comfortable readable scale (>= 0.75) instead of microscopic 0.1x!
+    assert!(
+        transform.scale >= 0.75,
+        "Scale on large graph must remain comfortable and legible, was {}",
+        transform.scale
+    );
+    // Pan must align to top-left with padding so first modules are visible
+    assert_eq!(transform.pan_x, 40.0);
+    assert_eq!(transform.pan_y, 50.0);
+}

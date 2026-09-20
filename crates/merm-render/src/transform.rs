@@ -62,9 +62,19 @@ impl Transform2D {
 
         let scale_x = avail_w / content_w;
         let scale_y = avail_h / content_h;
-        self.scale = scale_x.min(scale_y).clamp(0.1, 5.0);
+        let auto_fit = scale_x.min(scale_y);
 
-        self.pan_x = (view_w - content_w * self.scale) / 2.0;
-        self.pan_y = (view_h - content_h * self.scale) / 2.0;
+        if auto_fit >= 0.70 {
+            // Diagram fits comfortably within the viewport
+            self.scale = auto_fit.clamp(0.70, 2.5);
+            self.pan_x = (view_w - content_w * self.scale) / 2.0;
+            self.pan_y = (view_h - content_h * self.scale) / 2.0;
+        } else {
+            // Large diagram (e.g. 100+ classes): clamp to readable 0.75x zoom
+            // and align to top-left so root classes are immediately crisp & legible
+            self.scale = 0.75;
+            self.pan_x = padding;
+            self.pan_y = 50.0; // below top bar
+        }
     }
 }

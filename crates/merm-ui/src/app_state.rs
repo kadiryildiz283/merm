@@ -110,6 +110,12 @@ impl AppState {
         }
     }
 
+    pub fn show_report(&mut self, text: String) {
+        self.report_content = Some(text);
+        self.modal.mode = UiMode::Report;
+        self.modal.report_scroll_offset = 0;
+    }
+
     pub fn bind_project(&mut self, target_path: Option<&str>) -> Result<(), String> {
         let path = if let Some(p) = target_path {
             PathBuf::from(p)
@@ -199,9 +205,8 @@ impl AppState {
                             Ok(report) => {
                                 let summary = report.format_text();
                                 self.status_message = format!("&check: {}", report.summary());
-                                self.report_content = Some(summary);
                                 self.last_check_report = Some(report);
-                                self.modal.mode = UiMode::Report;
+                                self.show_report(summary);
                             }
                             Err(e) => {
                                 self.status_message = format!("&check failed: {}", e);
@@ -239,12 +244,12 @@ impl AppState {
                             Ok(proposal) => {
                                 self.status_message =
                                     "&advice ready. Type `&ok` to apply proposal.".to_string();
-                                self.report_content = Some(format!(
+                                let content = format!(
                                     "=== Architectural Advice Proposal ===\nQuery: {}\n\n{}\n\nType `&ok` to apply changes.",
                                     proposal.prompt, proposal.analysis
-                                ));
+                                );
                                 self.pending_advice = Some(proposal);
-                                self.modal.mode = UiMode::Report;
+                                self.show_report(content);
                             }
                             Err(e) => {
                                 self.status_message = format!("&advice failed: {}", e);
@@ -385,12 +390,12 @@ impl AppState {
                                     "&agy advice ready.{}{} Type `&ok` to apply proposal to app.",
                                     diag_info, files_info
                                 );
-                                self.report_content = Some(format!(
+                                let content = format!(
                                     "=== Google Antigravity (AGY) Proposal ===\nQuery: {}\n{}{}\n\n{}\n\nType `&ok` to apply changes.",
                                     proposal.prompt, diag_info, files_info, proposal.analysis
-                                ));
+                                );
                                 self.pending_advice = Some(proposal);
-                                self.modal.mode = UiMode::Report;
+                                self.show_report(content);
                             }
                             Err(e) => {
                                 self.status_message = format!("&agy failed: {}", e);
@@ -426,17 +431,17 @@ impl AppState {
                                     "&agy advice ready.{}. Type `&ok` to apply to canvas.",
                                     diag_info
                                 );
-                                self.report_content = Some(format!(
+                                let content = format!(
                                     "=== Google Antigravity (AGY) Response ===\nQuery: {}\n{}\n\n{}\n\nType `&ok` to apply diagram to canvas.",
                                     prompt, diag_info, ans
-                                ));
+                                );
                                 self.pending_advice = Some(AdviceProposal {
                                     prompt: prompt.clone(),
                                     analysis: ans,
                                     suggested_files: Vec::new(),
                                     suggested_diagram: suggested_diag,
                                 });
-                                self.modal.mode = UiMode::Report;
+                                self.show_report(content);
                             }
                             Err(e) => {
                                 self.status_message = format!("&agy failed: {}", e);
@@ -499,10 +504,9 @@ impl AppState {
                                 manifest.settings.build_command,
                                 manifest.settings.test_command
                             );
-                            self.report_content = Some(report);
                             self.status_message =
                                 format!("Config: provider={}", manifest.settings.llm_provider);
-                            self.modal.mode = UiMode::Report;
+                            self.show_report(report);
                         }
                         (Some("provider"), Some(v)) => {
                             manifest.settings.llm_provider = v.clone();
@@ -601,6 +605,101 @@ Keybindings (NORMAL mode):
                     .to_string(),
                 );
                 self.modal.mode = UiMode::Report;
+                self.modal.report_scroll_offset = 0;
+            }
+            Command::Quit => {
+                self.is_running = false;
+                self.status_message = "Exiting merm...".to_string();
+            }
+            Command::Save => {
+                if let Some(ref mut manifest) = self.manifest {
+                    let _ = manifest.save();
+                    let mmd_path = manifest.project_root.join("merm.mmd");
+                    let _ = std::fs::write(&mmd_path, &self.diagram_source);
+                    self.status_message =
+                        format!("Saved diagram to {} and manifest.", mmd_path.display());
+                } else {
+                    let _ = std::fs::write("merm.mmd", &self.diagram_source);
+                    self.status_message = "Saved diagram to merm.mmd".to_string();
+                }
+            }
+            Command::SaveAndQuit => {
+                if let Some(ref mut manifest) = self.manifest {
+                    let _ = manifest.save();
+                    let mmd_path = manifest.project_root.join("merm.mmd");
+                    let _ = std::fs::write(&mmd_path, &self.diagram_source);
+                } else {
+                    let _ = std::fs::write("merm.mmd", &self.diagram_source);
+                }
+                self.is_running = false;
+                self.status_message = "Saved and exiting merm...".to_string();
+            }
+            Command::Theme(name) => {
+                let target = match name.trim().to_lowercase().as_str() {
+                    "latte" | "light" => Some(ThemeId::CatppuccinLatte),
+                    "dracula" => Some(ThemeId::Dracula),
+                    "nord" => Some(ThemeId::Nord),
+                    "tokyo" | "tokyonight" => Some(ThemeId::TokyoNight),
+                    "gruvbox" => Some(ThemeId::GruvboxDark),
+                    "monokai" => Some(ThemeId::Monokai),
+                    "terminal" => Some(ThemeId::MonokaiTerminal),
+                    "mocha" | "catppuccin" | "dark" => Some(ThemeId::CatppuccinMocha),
+                    _ => None,
+                };
+                if let Some(t) = target {
+                    self.theme = t;
+                    if let Some(ref mut diag) = self.current_diagram {
+                        diag.regenerate_svg(&self.theme.palette());
+                    } else {
+                        self.recalculate_diagram();
+                    }
+                    self.status_message = format!("Theme set to '{}'", self.theme.palette().name);
+                } else {
+                    self.status_message = format!(
+                        "Unknown theme '{}'. Options: mocha, latte, dracula, nord, tokyo, gruvbox, monokai",
+                        name
+                    );
+                }
+            }
+            Command::Dir(dir_str) => {
+                let target_dir = match dir_str.trim().to_uppercase().as_str() {
+                    "TD" | "TB" => Some(LayoutDirection::TD),
+                    "LR" => Some(LayoutDirection::LR),
+                    "BT" => Some(LayoutDirection::BT),
+                    "RL" => Some(LayoutDirection::RL),
+                    _ => None,
+                };
+                if let Some(d) = target_dir {
+                    self.diagram_source = AstRewriter::pivot_direction(&self.diagram_source, d);
+                    self.active_direction = d;
+                    self.recalculate_diagram();
+                    self.status_message = format!("Layout direction set to {}", d.as_str());
+                } else {
+                    self.status_message =
+                        format!("Unknown direction '{}'. Options: TD, LR, BT, RL", dir_str);
+                }
+            }
+            Command::Fit => {
+                if let Some(ref diag) = self.current_diagram {
+                    self.transform
+                        .fit_to_viewport(diag.width, diag.height, 1280.0, 720.0);
+                    self.status_message =
+                        format!("Diagram view fitted (scale: {:.2}x)", self.transform.scale);
+                }
+            }
+            Command::Reset => {
+                self.transform = Transform2D::default();
+                if let Some(ref diag) = self.current_diagram {
+                    self.transform
+                        .fit_to_viewport(diag.width, diag.height, 1280.0, 720.0);
+                }
+                self.status_message = "Reset view transform".to_string();
+            }
+            Command::Clear => {
+                self.report_content = None;
+                self.modal.mode = UiMode::Normal;
+                self.modal.report_scroll_offset = 0;
+                self.status_message = "Cleared report view".to_string();
             }
             Command::Custom(s) => {
                 self.status_message = format!("Unknown command: {}", s);
@@ -677,7 +776,7 @@ Keybindings (NORMAL mode):
                         "Node '{}' [{}] ({}ms): {}",
                         node_id, status, res.duration_ms, res.output_payload
                     );
-                    self.report_content = Some(format!(
+                    let report_text = format!(
                         "=== Node Execution Result: {} ===\nStatus: {} (Exit code: {:?})\nDuration: {}ms\n\n[Output Payload]:\n{}\n\n[Stdout]:\n{}\n\n[Stderr]:\n{}",
                         node_id,
                         status,
@@ -686,8 +785,9 @@ Keybindings (NORMAL mode):
                         res.output_payload,
                         res.stdout,
                         res.stderr
-                    ));
+                    );
                     self.last_execution_result = Some(res);
+                    self.show_report(report_text);
                 }
                 Err(e) => {
                     self.status_message = format!("Execution failed for node '{}': {}", node_id, e);
@@ -756,9 +856,9 @@ Keybindings (NORMAL mode):
             WorkerResult::CheckFinished(Ok(report)) => {
                 let status_str = if report.is_compatible { "PASS" } else { "FAIL" };
                 self.status_message = format!("&check completed: Status: {}", status_str);
-                self.report_content = Some(report.format_text());
+                let text = report.format_text();
                 self.last_check_report = Some(report);
-                self.modal.mode = UiMode::Report;
+                self.show_report(text);
             }
             WorkerResult::CheckFinished(Err(e)) => {
                 self.status_message = format!("&check failed: {}", e);
@@ -779,12 +879,12 @@ Keybindings (NORMAL mode):
                     "&advice ready.{}{} Type `&ok` to apply proposal to app.",
                     diag_info, files_info
                 );
-                self.report_content = Some(format!(
+                let content = format!(
                     "=== Architectural Advice Proposal ===\nQuery: {}\n{}{}\n\n{}\n\nType `&ok` to apply diagram & file changes to application.",
                     proposal.prompt, diag_info, files_info, proposal.analysis
-                ));
+                );
                 self.pending_advice = Some(proposal);
-                self.modal.mode = UiMode::Report;
+                self.show_report(content);
             }
             WorkerResult::AdviceFinished(Err(e)) => {
                 self.status_message = format!("&advice failed: {}", e);
@@ -817,7 +917,7 @@ Keybindings (NORMAL mode):
                         "Node '{}' [{}] ({}ms): {}",
                         node_id, status, res.duration_ms, res.output_payload
                     );
-                    self.report_content = Some(format!(
+                    let report_text = format!(
                         "=== Node Execution Result: {} ===\nStatus: {} (Exit code: {:?})\nDuration: {}ms\n\n[Output Payload]:\n{}\n\n[Stdout]:\n{}\n\n[Stderr]:\n{}",
                         node_id,
                         status,
@@ -826,8 +926,9 @@ Keybindings (NORMAL mode):
                         res.output_payload,
                         res.stdout,
                         res.stderr
-                    ));
+                    );
                     self.last_execution_result = Some(res);
+                    self.show_report(report_text);
                 }
                 Err(e) => {
                     self.status_message = format!("Execution failed for node '{}': {}", node_id, e);
