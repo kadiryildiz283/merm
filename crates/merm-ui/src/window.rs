@@ -13,6 +13,8 @@ use winit::window::{Window, WindowId};
 
 use crate::app_state::AppState;
 use crate::modal::{UiAction, UiMode};
+use crate::watcher::{ProjectWatcher, WatcherEvent};
+use crate::worker::{AsyncWorker, WorkerResult};
 
 fn parse_hex_color(hex: &str) -> u32 {
     let s = hex.trim().to_lowercase();
@@ -36,6 +38,9 @@ fn parse_hex_color(hex: &str) -> u32 {
 pub struct MermAppWindow {
     app_state: AppState,
     ipc_rx: Option<Receiver<EditorCommand>>,
+    worker_rx: Option<Receiver<WorkerResult>>,
+    watcher_rx: Option<Receiver<WatcherEvent>>,
+    _watcher: Option<ProjectWatcher>,
     rasterizer: SvgRasterizer,
     window: Option<Arc<Window>>,
     context: Option<softbuffer::Context<Arc<Window>>>,
@@ -50,10 +55,29 @@ pub struct MermAppWindow {
 }
 
 impl MermAppWindow {
-    pub fn new(app_state: AppState, ipc_rx: Option<Receiver<EditorCommand>>) -> Self {
+    pub fn new(mut app_state: AppState, ipc_rx: Option<Receiver<EditorCommand>>) -> Self {
+        let (worker_res_tx, worker_res_rx) = std::sync::mpsc::channel();
+        let worker = AsyncWorker::spawn(worker_res_tx);
+        app_state.worker = Some(worker);
+
+        let (watcher_tx, watcher_rx) = std::sync::mpsc::channel();
+        let watcher = if let Some(ref m) = app_state.manifest {
+            let src_dir = m.project_root.join("src");
+            if src_dir.exists() {
+                ProjectWatcher::new(&src_dir, watcher_tx).ok()
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         Self {
             app_state,
             ipc_rx,
+            worker_rx: Some(worker_res_rx),
+            watcher_rx: Some(watcher_rx),
+            _watcher: watcher,
             rasterizer: SvgRasterizer::new(),
             window: None,
             context: None,
@@ -298,6 +322,179 @@ impl MermAppWindow {
                         line_y += 18.0;
                     }
                 }
+            }
+            UiMode::Inspector => {
+                // Centered Node Inspector modal window
+                let modal_w = (width as f32 - 160.0).max(480.0);
+                let modal_h = (height as f32 - 120.0).max(340.0);
+                let modal_x = (width as f32 - modal_w) / 2.0;
+                let modal_y = (height as f32 - modal_h) / 2.0;
+
+                // Dim backdrop
+                svg.push_str(&format!(
+                    r##"<rect x="0" y="0" width="{}" height="{}" fill="#000000" opacity="0.65"/>"##,
+                    width, height
+                ));
+
+                // Modal dialog window
+                svg.push_str(&format!(
+                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}" stroke="{}" stroke-width="2"/>"##,
+                    modal_x, modal_y, modal_w, modal_h, palette.background, palette.badge_bg
+                ));
+
+                // Header bar
+                svg.push_str(&format!(
+                    r##"<rect x="{}" y="{}" width="{}" height="36" rx="8" fill="{}"/>"##,
+                    modal_x, modal_y, modal_w, palette.badge_bg
+                ));
+
+                let active_id = app_state.active_node_id.as_deref().unwrap_or("Unknown");
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="14" font-weight="bold">🔍 Node Inspector: &lt;{}&gt;</text>"##,
+                    modal_x + 16.0, modal_y + 23.0, palette.text_main, escape_xml(active_id)
+                ));
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12" text-anchor="end">[e] Edit | [t] Test | [Esc/q] Close</text>"##,
+                    modal_x + modal_w - 16.0, modal_y + 23.0, palette.text_sub
+                ));
+
+                let node_data = app_state
+                    .current_diagram
+                    .as_ref()
+                    .and_then(|d| d.nodes.iter().find(|n| n.id == active_id));
+
+                let binding = app_state
+                    .manifest
+                    .as_ref()
+                    .and_then(|m| m.get_binding(active_id));
+
+                let mut cur_y = modal_y + 60.0;
+
+                let role = node_data
+                    .and_then(|n| n.stereotype.as_deref())
+                    .unwrap_or("struct");
+                let bound_file = binding
+                    .map(|b| b.file.as_str())
+                    .unwrap_or_else(|| "src/lib.rs (default)");
+                let entrypoint = binding
+                    .and_then(|b| b.entrypoint.as_deref())
+                    .unwrap_or("run");
+                let is_exec = binding.map(|b| b.executable).unwrap_or(true);
+
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12" font-weight="bold">Type: &lt;&lt;{}&gt;&gt; | File: {} | Executable: {} | Entrypoint: {}</text>"##,
+                    modal_x + 20.0, cur_y, palette.stereotype_color, escape_xml(role), escape_xml(bound_file), if is_exec { "YES" } else { "NO" }, escape_xml(entrypoint)
+                ));
+                cur_y += 24.0;
+
+                if let Some(doc) = node_data.and_then(|n| n.doc_comment.as_deref()) {
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12" font-style="italic">%% {}</text>"##,
+                        modal_x + 20.0, cur_y, palette.comment_color, escape_xml(doc)
+                    ));
+                    cur_y += 20.0;
+                }
+
+                if let Some(node) = node_data {
+                    if !node.attributes.is_empty() {
+                        svg.push_str(&format!(
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12" font-weight="bold">Fields / State ({}):</text>"##,
+                            modal_x + 20.0, cur_y, palette.var_color, node.attributes.len()
+                        ));
+                        cur_y += 18.0;
+                        for attr in node.attributes.iter().take(5) {
+                            let type_str = attr.type_name.as_deref().unwrap_or("String");
+                            let comm_str = attr
+                                .comment
+                                .as_ref()
+                                .map(|c| format!(" // {}", c))
+                                .unwrap_or_default();
+                            svg.push_str(&format!(
+                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11">   {}{}: {}{}</text>"##,
+                                modal_x + 24.0, cur_y, palette.text_main, attr.visibility, escape_xml(&attr.name), escape_xml(type_str), escape_xml(&comm_str)
+                            ));
+                            cur_y += 16.0;
+                        }
+                    }
+
+                    if !node.methods.is_empty() {
+                        svg.push_str(&format!(
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12" font-weight="bold">Methods / Functions ({}):</text>"##,
+                            modal_x + 20.0, cur_y, palette.method_color, node.methods.len()
+                        ));
+                        cur_y += 18.0;
+                        for meth in node.methods.iter().take(5) {
+                            let ret_str = meth
+                                .type_name
+                                .as_ref()
+                                .map(|r| format!(" -> {}", r))
+                                .unwrap_or_default();
+                            let comm_str = meth
+                                .comment
+                                .as_ref()
+                                .map(|c| format!(" // {}", c))
+                                .unwrap_or_default();
+                            svg.push_str(&format!(
+                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11">   {}{}{}{}</text>"##,
+                                modal_x + 24.0, cur_y, palette.text_main, meth.visibility, escape_xml(&meth.name), escape_xml(&ret_str), escape_xml(&comm_str)
+                            ));
+                            cur_y += 16.0;
+                        }
+                    }
+                }
+
+                if let Some(ref diag) = app_state.current_diagram {
+                    let outgoing: Vec<_> =
+                        diag.edges.iter().filter(|e| e.from == active_id).collect();
+                    let incoming: Vec<_> =
+                        diag.edges.iter().filter(|e| e.to == active_id).collect();
+                    if !outgoing.is_empty() || !incoming.is_empty() {
+                        svg.push_str(&format!(
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12" font-weight="bold">Architectural Relations:</text>"##,
+                            modal_x + 20.0, cur_y, palette.stereotype_color
+                        ));
+                        cur_y += 18.0;
+                        for e in outgoing.iter().take(3) {
+                            let lbl = e
+                                .label
+                                .as_ref()
+                                .map(|l| format!(" : {}", l))
+                                .unwrap_or_default();
+                            svg.push_str(&format!(
+                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11">   --> {}{}</text>"##,
+                                modal_x + 24.0, cur_y, palette.text_sub, escape_xml(&e.to), escape_xml(&lbl)
+                            ));
+                            cur_y += 16.0;
+                        }
+                        for e in incoming.iter().take(3) {
+                            let lbl = e
+                                .label
+                                .as_ref()
+                                .map(|l| format!(" : {}", l))
+                                .unwrap_or_default();
+                            svg.push_str(&format!(
+                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11">   <-- {}{}</text>"##,
+                                modal_x + 24.0, cur_y, palette.text_sub, escape_xml(&e.from), escape_xml(&lbl)
+                            ));
+                            cur_y += 16.0;
+                        }
+                    }
+                }
+
+                cur_y += 6.0;
+                let exec_info = if let Some(ref res) = app_state.last_execution_result {
+                    let st = if res.success { "✔ PASS" } else { "✖ FAIL" };
+                    format!(
+                        "Last Harness Execution: [{}] ({}ms) Output: {}",
+                        st, res.duration_ms, res.output_payload
+                    )
+                } else {
+                    "Last Harness Execution: [Not executed yet. Press 't' to run]".to_string()
+                };
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" font-weight="bold">{}</text>"##,
+                    modal_x + 20.0, cur_y, palette.method_color, escape_xml(&exec_info)
+                ));
             }
             _ => {
                 // Normal mode HUD bar at bottom
@@ -573,16 +770,38 @@ impl ApplicationHandler for MermAppWindow {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        let mut needs_redraw = false;
+
         if let Some(ref rx) = self.ipc_rx {
-            let mut got_cmd = false;
             while let Ok(cmd) = rx.try_recv() {
                 self.app_state.handle_ipc_command(cmd);
-                got_cmd = true;
+                needs_redraw = true;
             }
-            if got_cmd {
-                if let Some(ref w) = self.window {
-                    w.request_redraw();
+        }
+
+        if let Some(ref rx) = self.worker_rx {
+            while let Ok(res) = rx.try_recv() {
+                self.app_state.handle_worker_result(res);
+                needs_redraw = true;
+            }
+        }
+
+        if let Some(ref rx) = self.watcher_rx {
+            while let Ok(evt) = rx.try_recv() {
+                match evt {
+                    WatcherEvent::SourceChanged(paths) => {
+                        self.app_state.handle_source_files_changed(&paths);
+                        needs_redraw = true;
+                    }
                 }
+            }
+        }
+
+        if needs_redraw {
+            if let Some(ref w) = self.window {
+                let title = format!("merm | {}", self.app_state.hud_status());
+                w.set_title(&title);
+                w.request_redraw();
             }
         }
     }

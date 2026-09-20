@@ -1,5 +1,5 @@
 use crate::error::CoreError;
-use crate::llm_client::LlmClient;
+use crate::llm_client::{LlmClient, LlmProvider};
 use crate::manifest::ProjectManifest;
 use crate::rust_scanner::RustScanner;
 use crate::transactions::TransactionSnapshot;
@@ -85,6 +85,18 @@ impl Advisor {
         manifest: &ProjectManifest,
         diagram_source: &str,
     ) -> Result<CheckReport, CoreError> {
+        let llm = LlmClient::new(
+            manifest.settings.llm_endpoint.clone(),
+            manifest.settings.llm_model.clone(),
+        );
+        Self::run_check_with_provider(manifest, diagram_source, &llm).await
+    }
+
+    pub async fn run_check_with_provider(
+        manifest: &ProjectManifest,
+        diagram_source: &str,
+        provider: &dyn LlmProvider,
+    ) -> Result<CheckReport, CoreError> {
         let scan_report = RustScanner::scan_project(&manifest.project_root)?;
         let compat = RustScanner::verify_diagram_compatibility(diagram_source, &scan_report);
 
@@ -113,12 +125,6 @@ impl Advisor {
         let mut diagnostics = compat.diagnostics.clone();
         diagnostics.push(format!("Build check: {}", compile_msg));
 
-        // Query LLM if configured
-        let llm = LlmClient::new(
-            manifest.settings.llm_endpoint.clone(),
-            manifest.settings.llm_model.clone(),
-        );
-
         let system_prompt = "You are a senior Rust systems architect verifying Mermaid architecture diagrams against actual Rust code.";
         let user_prompt = format!(
             "Verify this Mermaid diagram against the project AST symbols.\nMermaid Diagram:\n{}\n\nRust Symbols:\n{:?}\n\nBuild Status: {}\nProvide a brief, actionable architecture critique.",
@@ -127,7 +133,7 @@ impl Advisor {
             if compilation_success { "Clean build" } else { "Compiler errors detected" }
         );
 
-        let llm_critique = match llm.query(system_prompt, &user_prompt).await {
+        let llm_critique = match provider.query(system_prompt, &user_prompt).await {
             Ok(critique) => Some(critique),
             Err(e) => Some(format!(
                 "[Offline Mode] LLM endpoint unreachable ({}); deterministic checks verified.",
@@ -150,12 +156,20 @@ impl Advisor {
         diagram_source: &str,
         user_prompt: &str,
     ) -> Result<AdviceProposal, CoreError> {
-        let scan_report = RustScanner::scan_project(&manifest.project_root)?;
-
         let llm = LlmClient::new(
             manifest.settings.llm_endpoint.clone(),
             manifest.settings.llm_model.clone(),
         );
+        Self::request_advice_with_provider(manifest, diagram_source, user_prompt, &llm).await
+    }
+
+    pub async fn request_advice_with_provider(
+        manifest: &ProjectManifest,
+        diagram_source: &str,
+        user_prompt: &str,
+        provider: &dyn LlmProvider,
+    ) -> Result<AdviceProposal, CoreError> {
+        let scan_report = RustScanner::scan_project(&manifest.project_root)?;
 
         let system_prompt = r#"You are a senior Rust systems architect. The user is asking for architectural advice for their Rust project and its Mermaid diagram.
 Analyze the request and provide your advice. If files or diagrams should be changed, you can describe them.
@@ -172,7 +186,7 @@ Always structure your advice clearly with rationale and trade-offs."#;
                 .collect::<Vec<_>>()
         );
 
-        let analysis = match llm.query(system_prompt, &user_query).await {
+        let analysis = match provider.query(system_prompt, &user_query).await {
             Ok(ans) => ans,
             Err(e) => format!(
                 "[Offline Architectural Recommendation for '{}']\n- Review module cohesion and decoupled responsibilities.\n- Ensure each bound class exposes an executable `run(input: &str) -> String` test entrypoint.\n(Note: LLM endpoint offline: {})",
@@ -236,12 +250,20 @@ Always structure your advice clearly with rationale and trade-offs."#;
         diagram_source: &str,
         user_prompt: &str,
     ) -> Result<(String, Option<String>), CoreError> {
-        let scan_report = RustScanner::scan_project(&manifest.project_root)?;
-
         let llm = LlmClient::new(
             manifest.settings.llm_endpoint.clone(),
             manifest.settings.llm_model.clone(),
         );
+        Self::execute_ai_with_provider(manifest, diagram_source, user_prompt, &llm).await
+    }
+
+    pub async fn execute_ai_with_provider(
+        manifest: &mut ProjectManifest,
+        diagram_source: &str,
+        user_prompt: &str,
+        provider: &dyn LlmProvider,
+    ) -> Result<(String, Option<String>), CoreError> {
+        let scan_report = RustScanner::scan_project(&manifest.project_root)?;
 
         let system_prompt = r#"You are an autonomous Rust engineer. Return ONLY a JSON object conforming to this schema:
 {
@@ -264,7 +286,7 @@ Do not include any conversational preamble or markdown code fences outside the J
                 .collect::<Vec<_>>()
         );
 
-        let raw_response = llm.query(system_prompt, &user_query).await?;
+        let raw_response = provider.query(system_prompt, &user_query).await?;
 
         // Extract JSON payload
         let json_str = if let Some(start) = raw_response.find('{') {

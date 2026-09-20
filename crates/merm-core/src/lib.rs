@@ -1,10 +1,12 @@
 pub mod advisor;
+pub mod architecture_graph;
 pub mod ast_rewriter;
 pub mod class_diagram;
 pub mod command;
 pub mod engine;
 pub mod error;
 pub mod extractor;
+pub mod language_adapter;
 pub mod llm_client;
 pub mod manifest;
 pub mod node_runner;
@@ -16,6 +18,10 @@ pub mod transactions;
 pub mod xml_utils;
 
 pub use advisor::{AdviceProposal, Advisor, CheckReport};
+pub use architecture_graph::{
+    ArchEdge, ArchMember, ArchNode, ArchitectureGraph, Divergence, ReconciliationEngine,
+    ReconciliationReport,
+};
 pub use ast_rewriter::{AstRewriter, LayoutDirection};
 pub use class_diagram::{ClassDef, ClassDiagramParser, ClassRelation};
 pub use command::{Command, NodeKind};
@@ -24,7 +30,8 @@ pub use engine::{
 };
 pub use error::CoreError;
 pub use extractor::{DiagramBlock, DiagramExtractor, DiagramType};
-pub use llm_client::LlmClient;
+pub use language_adapter::{BuildStatus, LanguageAdapter, RustAdapter};
+pub use llm_client::{HttpLlmProvider, LlmClient, LlmProvider, MockLlmProvider};
 pub use manifest::{NodeBinding, ProjectManifest, ProjectSettings, MANIFEST_FILE, MERM_DIR};
 pub use node_runner::{ExecutionResult, NodeRunner};
 pub use quickjs_engine::QuickJsEngine;

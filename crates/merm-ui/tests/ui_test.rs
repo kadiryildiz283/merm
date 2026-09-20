@@ -83,3 +83,60 @@ fn test_app_state_command_dispatch() {
         .diagram_source
         .contains("User --> BillingService : pays"));
 }
+
+#[test]
+fn test_app_state_inspector_mode() {
+    let source = "classDiagram\n    class AuthService\n".to_string();
+    let mut app = AppState::new(source, false);
+    app.select_node(Some("AuthService"));
+
+    // Trigger inspector
+    let act = app.modal.handle_key('i', true);
+    assert_eq!(act, UiAction::SetMode(merm_ui::UiMode::Inspector));
+    app.handle_key_action(act);
+
+    assert_eq!(app.modal.mode, merm_ui::UiMode::Inspector);
+    let hud = app.hud_status();
+    assert!(hud.contains("[INSPECTOR: AuthService]"));
+
+    // Exit inspector
+    let act_close = app.modal.handle_key('q', true);
+    assert_eq!(act_close, UiAction::SetMode(merm_ui::UiMode::Normal));
+    app.handle_key_action(act_close);
+    assert_eq!(app.modal.mode, merm_ui::UiMode::Normal);
+}
+
+#[test]
+fn test_app_state_worker_async_result_handling() {
+    let source = "classDiagram\n    class WorkerNode\n".to_string();
+    let mut app = AppState::new(source, false);
+
+    // Simulate worker sending a test result
+    let worker_res = merm_ui::WorkerResult::TestFinished {
+        node_id: "WorkerNode".to_string(),
+        result: Ok(merm_core::ExecutionResult {
+            success: true,
+            output_payload: "{\"status\": \"healthy\"}".to_string(),
+            duration_ms: 15,
+            exit_code: Some(0),
+            stdout: "health check ok".to_string(),
+            stderr: String::new(),
+        }),
+    };
+
+    app.is_busy = true;
+    app.busy_message = "Testing...".to_string();
+
+    app.handle_worker_result(worker_res);
+
+    assert!(!app.is_busy);
+    assert!(app
+        .status_message
+        .contains("Node 'WorkerNode' [SUCCESS] (15ms)"));
+    assert!(app.last_execution_result.is_some());
+    assert!(app
+        .report_content
+        .as_ref()
+        .unwrap()
+        .contains("=== Node Execution Result: WorkerNode ==="));
+}

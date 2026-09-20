@@ -220,4 +220,54 @@ impl SvgRasterizer {
 
         Ok(())
     }
+
+    pub fn rasterize_to_png(
+        &self,
+        svg_data: &str,
+        scale: f32,
+        bg_color: Option<u32>,
+    ) -> Result<Vec<u8>, String> {
+        let opt = resvg::usvg::Options {
+            fontdb: self.fontdb.clone(),
+            ..Default::default()
+        };
+        let tree = resvg::usvg::Tree::from_str(svg_data, &opt)
+            .map_err(|e| format!("SVG parse error: {e}"))?;
+
+        let size = tree.size();
+        let width = ((size.width() * scale).ceil() as u32).max(1);
+        let height = ((size.height() * scale).ceil() as u32).max(1);
+
+        let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)
+            .ok_or_else(|| "Failed to allocate tiny-skia pixmap".to_string())?;
+
+        let bg = match bg_color {
+            Some(0) => resvg::tiny_skia::Color::TRANSPARENT,
+            Some(c) => {
+                let a = ((c >> 24) & 0xFF) as u8;
+                let r = ((c >> 16) & 0xFF) as u8;
+                let g = ((c >> 8) & 0xFF) as u8;
+                let b = (c & 0xFF) as u8;
+                resvg::tiny_skia::Color::from_rgba8(
+                    r,
+                    g,
+                    b,
+                    if a == 0 && (r != 0 || g != 0 || b != 0) {
+                        255
+                    } else {
+                        a
+                    },
+                )
+            }
+            None => resvg::tiny_skia::Color::from_rgba8(30, 30, 46, 255),
+        };
+        pixmap.fill(bg);
+
+        let render_ts = resvg::tiny_skia::Transform::from_scale(scale, scale);
+        resvg::render(&tree, render_ts, &mut pixmap.as_mut());
+
+        pixmap
+            .encode_png()
+            .map_err(|e| format!("PNG encode error: {e}"))
+    }
 }

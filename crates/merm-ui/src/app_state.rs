@@ -1,7 +1,8 @@
 use merm_core::{
-    AdviceProposal, Advisor, AstRewriter, CheckReport, Command, DiagramExtractor, ExecutionResult,
-    LayoutDirection, LayoutEngine, NodeBinding, NodeKind, NodeRunner, ProjectManifest,
-    RenderedDiagram, RustScanner, Scaffolder, ThemeId,
+    AdviceProposal, Advisor, ArchitectureGraph, AstRewriter, CheckReport, Command,
+    DiagramExtractor, ExecutionResult, LayoutDirection, LayoutEngine, NodeBinding, NodeKind,
+    NodeRunner, ProjectManifest, ReconciliationEngine, RenderedDiagram, RustScanner, Scaffolder,
+    ThemeId,
 };
 use merm_ipc::EditorCommand;
 use merm_render::{BackendType, RenderEngine, Transform2D};
@@ -11,6 +12,7 @@ use std::process::Command as StdCommand;
 use std::time::Duration;
 
 use crate::modal::{ModalController, UiAction, UiMode};
+use crate::worker::{AsyncWorker, WorkerResult, WorkerTask};
 
 pub struct AppState {
     pub diagram_source: String,
@@ -32,6 +34,7 @@ pub struct AppState {
     pub report_content: Option<String>,
     pub is_busy: bool,
     pub busy_message: String,
+    pub worker: Option<AsyncWorker>,
 }
 
 impl AppState {
@@ -64,6 +67,7 @@ impl AppState {
             report_content: None,
             is_busy: false,
             busy_message: String::new(),
+            worker: None,
         };
 
         // Try detecting current directory as a Rust project automatically
@@ -173,6 +177,17 @@ impl AppState {
             }
             Command::Check => {
                 if let Some(ref manifest) = self.manifest {
+                    if let Some(ref w) = self.worker {
+                        self.is_busy = true;
+                        self.busy_message = "Running &check...".to_string();
+                        self.status_message =
+                            "Running &check in background (AST, build & LLM)...".to_string();
+                        let _ = w.dispatch(WorkerTask::Check {
+                            manifest: manifest.clone(),
+                            diagram_source: self.diagram_source.clone(),
+                        });
+                        return;
+                    }
                     self.status_message =
                         "Running &check (verifying Rust AST, build & LLM)...".to_string();
                     let rt = tokio::runtime::Builder::new_current_thread()
@@ -198,6 +213,18 @@ impl AppState {
             }
             Command::Advice { prompt } => {
                 if let Some(ref manifest) = self.manifest {
+                    if let Some(ref w) = self.worker {
+                        self.is_busy = true;
+                        self.busy_message = "Querying LLM for advice...".to_string();
+                        self.status_message =
+                            format!("Querying LLM in background for '{}'...", prompt);
+                        let _ = w.dispatch(WorkerTask::Advice {
+                            manifest: manifest.clone(),
+                            diagram_source: self.diagram_source.clone(),
+                            prompt,
+                        });
+                        return;
+                    }
                     self.status_message = format!("Querying LLM for advice on '{}'...", prompt);
                     let rt = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
@@ -230,6 +257,18 @@ impl AppState {
             Command::Ok => {
                 if let Some(ref proposal) = self.pending_advice.clone() {
                     if let Some(ref mut manifest) = self.manifest {
+                        if let Some(ref w) = self.worker {
+                            self.is_busy = true;
+                            self.busy_message =
+                                "Applying advice & verifying with rollback...".to_string();
+                            self.status_message = "Applying advice in background...".to_string();
+                            let _ = w.dispatch(WorkerTask::Ok {
+                                manifest: manifest.clone(),
+                                proposal: proposal.clone(),
+                                diagram_source: self.diagram_source.clone(),
+                            });
+                            return;
+                        }
                         match Advisor::apply_advice(manifest, proposal, &self.diagram_source) {
                             Ok(msg) => {
                                 self.status_message = format!("&ok: {}", msg);
@@ -251,6 +290,18 @@ impl AppState {
             }
             Command::Ai { prompt } => {
                 if let Some(ref mut manifest) = self.manifest {
+                    if let Some(ref w) = self.worker {
+                        self.is_busy = true;
+                        self.busy_message = "Running autonomous &ai...".to_string();
+                        self.status_message =
+                            format!("Running &ai in background for '{}'...", prompt);
+                        let _ = w.dispatch(WorkerTask::Ai {
+                            manifest: manifest.clone(),
+                            diagram_source: self.diagram_source.clone(),
+                            prompt,
+                        });
+                        return;
+                    }
                     self.status_message = format!("Running autonomous &ai for '{}'...", prompt);
                     let rt = tokio::runtime::Builder::new_current_thread()
                         .enable_all()
@@ -365,6 +416,23 @@ Keybindings (NORMAL mode):
                 ("src/lib.rs", Some("run"))
             };
 
+            if let Some(ref w) = self.worker {
+                self.is_busy = true;
+                self.busy_message = format!("Testing node '{}'...", node_id);
+                self.status_message = format!(
+                    "Executing node '{}' in background with input '{}'...",
+                    node_id, input
+                );
+                let _ = w.dispatch(WorkerTask::Test {
+                    project_root: manifest.project_root.clone(),
+                    node_id: node_id.to_string(),
+                    file_path: file_path.to_string(),
+                    entrypoint: entrypoint.map(|s| s.to_string()),
+                    input: input.to_string(),
+                });
+                return;
+            }
+
             self.status_message = format!("Executing node '{}' with input '{}'...", node_id, input);
 
             match NodeRunner::execute_node(
@@ -448,6 +516,105 @@ Keybindings (NORMAL mode):
             EditorCommand::Ping => {}
             EditorCommand::Custom { method, .. } => {
                 log::debug!("Unhandled custom IPC method: {}", method);
+            }
+        }
+    }
+
+    pub fn handle_worker_result(&mut self, res: WorkerResult) {
+        self.is_busy = false;
+        self.busy_message.clear();
+        match res {
+            WorkerResult::CheckFinished(Ok(report)) => {
+                let status_str = if report.is_compatible { "PASS" } else { "FAIL" };
+                self.status_message = format!("&check completed: Status: {}", status_str);
+                self.report_content = Some(report.format_text());
+                self.last_check_report = Some(report);
+                self.modal.mode = UiMode::Report;
+            }
+            WorkerResult::CheckFinished(Err(e)) => {
+                self.status_message = format!("&check failed: {}", e);
+            }
+            WorkerResult::AdviceFinished(Ok(proposal)) => {
+                self.status_message = "&advice ready. Type `&ok` to apply proposal.".to_string();
+                self.report_content = Some(format!(
+                    "=== Architectural Advice Proposal ===\nQuery: {}\n\n{}\n\nType `&ok` to apply changes.",
+                    proposal.prompt, proposal.analysis
+                ));
+                self.pending_advice = Some(proposal);
+                self.modal.mode = UiMode::Report;
+            }
+            WorkerResult::AdviceFinished(Err(e)) => {
+                self.status_message = format!("&advice failed: {}", e);
+            }
+            WorkerResult::OkFinished(Ok((msg, new_diag))) => {
+                self.status_message = format!("&ok: {}", msg);
+                if let Some(d) = new_diag {
+                    self.diagram_source = d;
+                    self.recalculate_diagram();
+                }
+                self.pending_advice = None;
+            }
+            WorkerResult::OkFinished(Err(e)) => {
+                self.status_message = format!("&ok rollback: {}", e);
+            }
+            WorkerResult::AiFinished(Ok((explanation, new_diag))) => {
+                self.status_message = format!("&ai completed: {}", explanation);
+                if let Some(d) = new_diag {
+                    self.diagram_source = d;
+                    self.recalculate_diagram();
+                }
+            }
+            WorkerResult::AiFinished(Err(e)) => {
+                self.status_message = format!("&ai error: {}", e);
+            }
+            WorkerResult::TestFinished { node_id, result } => match result {
+                Ok(res) => {
+                    let status = if res.success { "SUCCESS" } else { "FAILED" };
+                    self.status_message = format!(
+                        "Node '{}' [{}] ({}ms): {}",
+                        node_id, status, res.duration_ms, res.output_payload
+                    );
+                    self.report_content = Some(format!(
+                        "=== Node Execution Result: {} ===\nStatus: {} (Exit code: {:?})\nDuration: {}ms\n\n[Output Payload]:\n{}\n\n[Stdout]:\n{}\n\n[Stderr]:\n{}",
+                        node_id,
+                        status,
+                        res.exit_code,
+                        res.duration_ms,
+                        res.output_payload,
+                        res.stdout,
+                        res.stderr
+                    ));
+                    self.last_execution_result = Some(res);
+                }
+                Err(e) => {
+                    self.status_message = format!("Execution failed for node '{}': {}", node_id, e);
+                }
+            },
+        }
+    }
+
+    pub fn handle_source_files_changed(&mut self, paths: &[PathBuf]) {
+        if let Some(ref manifest) = self.manifest {
+            log::info!("Live reload: {} source files changed", paths.len());
+            if let Ok(scan_report) = RustScanner::scan_project(&manifest.project_root) {
+                let code_graph = ArchitectureGraph::from_project_symbols(&scan_report);
+                let diag_graph = ArchitectureGraph::from_mermaid_source(&self.diagram_source);
+                let reconcil = ReconciliationEngine::reconcile(&diag_graph, &code_graph);
+
+                if reconcil.is_synchronized() {
+                    self.status_message = format!(
+                        "Live sync: {} file(s) updated. Architecture synchronized ({} nodes).",
+                        paths.len(),
+                        reconcil.matched_nodes.len()
+                    );
+                } else {
+                    let div_count = reconcil.divergences.len() + reconcil.diagram_only_nodes.len();
+                    self.status_message = format!(
+                        "Live sync: {} file(s) updated. Divergence detected ({} nodes)! Press 'i' or run &check.",
+                        paths.len(),
+                        div_count
+                    );
+                }
             }
         }
     }
@@ -582,6 +749,10 @@ Keybindings (NORMAL mode):
     }
 
     pub fn hud_status(&self) -> String {
+        if self.is_busy {
+            return format!("[BUSY: {}] Working in background...", self.busy_message);
+        }
+
         // Mode-specific status line
         match self.modal.mode {
             UiMode::Command => {
@@ -596,6 +767,13 @@ Keybindings (NORMAL mode):
                 return format!(
                     "[TEST NODE: {}] Input: {}█ (Press Enter to execute, Esc to exit)",
                     node, self.modal.test_input_buffer
+                );
+            }
+            UiMode::Inspector => {
+                let node = self.active_node_id.as_deref().unwrap_or("Unknown");
+                return format!(
+                    "[INSPECTOR: {}] Press 'e' to edit, 't' to test, Esc/q to exit",
+                    node
                 );
             }
             UiMode::Report => {

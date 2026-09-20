@@ -123,6 +123,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let args: Vec<String> = env::args().collect();
     let mut file_path: Option<String> = None;
+    let mut output_path: Option<PathBuf> = None;
     let mut socket_path = default_socket_path();
     let mut force_software_render = false;
     let mut headless = false;
@@ -151,6 +152,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     process::exit(1);
                 }
             }
+            "-o" | "--output" => {
+                if i + 1 < args.len() {
+                    output_path = Some(PathBuf::from(&args[i + 1]));
+                    i += 1;
+                } else {
+                    eprintln!("Error: --output requires a file path");
+                    process::exit(1);
+                }
+            }
             "--software-render" => {
                 force_software_render = true;
             }
@@ -165,6 +175,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     eprintln!("Error: --socket requires a path argument");
                     process::exit(1);
                 }
+            }
+            "-" => {
+                file_path = Some("-".to_string());
             }
             arg if !arg.starts_with('-') => {
                 file_path = Some(arg.to_string());
@@ -290,6 +303,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 res.rendered_objects
             );
         }
+
+        if let Some(ref out_path) = output_path {
+            if let Some(ref diag) = app.current_diagram {
+                let ext = out_path
+                    .extension()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("png");
+                if ext == "svg" {
+                    fs::write(out_path, &diag.svg)?;
+                    println!("[merm] Exported diagram SVG to {:?}", out_path);
+                } else {
+                    let rasterizer = merm_render::SvgRasterizer::new();
+                    let bg_color = parse_hex_color(&app.theme.palette().background);
+                    match rasterizer.rasterize_to_png(&diag.svg, 2.0, Some(bg_color)) {
+                        Ok(png_bytes) => {
+                            fs::write(out_path, png_bytes)?;
+                            println!("[merm] Rendered and exported diagram to {:?}", out_path);
+                        }
+                        Err(e) => {
+                            eprintln!("Failed to rasterize PNG: {}", e);
+                        }
+                    }
+                }
+            }
+        }
     } else {
         println!(
             "\n[merm] Launching interactive GUI window. Socket: {:?}",
@@ -302,6 +340,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn parse_hex_color(hex: &str) -> u32 {
+    let s = hex.trim().to_lowercase();
+    if s == "transparent" || s == "none" {
+        return 0x00000000;
+    }
+    let clean = s.trim_start_matches('#');
+    match clean.len() {
+        6 => {
+            if let Ok(rgb) = u32::from_str_radix(clean, 16) {
+                0xff00_0000 | rgb
+            } else {
+                0xff1e_1e2e
+            }
+        }
+        8 => u32::from_str_radix(clean, 16).unwrap_or(0xff1e_1e2e),
+        _ => 0xff1e_1e2e,
+    }
 }
 
 fn atty_is_terminal() -> bool {

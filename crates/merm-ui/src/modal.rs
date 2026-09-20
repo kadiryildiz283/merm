@@ -7,6 +7,7 @@ pub enum UiMode {
     Command,
     NodeTest,
     Report,
+    Inspector,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -98,6 +99,14 @@ impl ModalController {
                     self.search_query.clear();
                     UiAction::SetMode(UiMode::Search)
                 }
+                'i' | 'K' => {
+                    if has_selected_node {
+                        self.mode = UiMode::Inspector;
+                        UiAction::SetMode(UiMode::Inspector)
+                    } else {
+                        UiAction::None
+                    }
+                }
                 'q' => UiAction::Quit,
                 _ => UiAction::None,
             },
@@ -142,6 +151,27 @@ impl ModalController {
                     self.handle_backspace()
                 } else {
                     self.search_query.push(key);
+                    UiAction::None
+                }
+            }
+            UiMode::Inspector => {
+                if key == '\x1b' || key == 'q' || key == '\n' || key == '\r' {
+                    self.mode = UiMode::Normal;
+                    UiAction::SetMode(UiMode::Normal)
+                } else if key == 'e' {
+                    if has_selected_node {
+                        UiAction::OpenEditor(String::new())
+                    } else {
+                        UiAction::None
+                    }
+                } else if key == 't' {
+                    if has_selected_node {
+                        self.mode = UiMode::NodeTest;
+                        UiAction::SetMode(UiMode::NodeTest)
+                    } else {
+                        UiAction::None
+                    }
+                } else {
                     UiAction::None
                 }
             }
@@ -199,5 +229,39 @@ mod tests {
         let exec = controller.handle_key('\n', false);
         assert_eq!(exec, UiAction::ExecuteCommand(":set".to_string()));
         assert_eq!(controller.mode, UiMode::Normal);
+    }
+
+    #[test]
+    fn test_modal_inspector_flow() {
+        let mut controller = ModalController::default();
+        assert_eq!(controller.handle_key('i', false), UiAction::None);
+        assert_eq!(controller.mode, UiMode::Normal);
+
+        assert_eq!(
+            controller.handle_key('i', true),
+            UiAction::SetMode(UiMode::Inspector)
+        );
+        assert_eq!(controller.mode, UiMode::Inspector);
+
+        assert_eq!(
+            controller.handle_key('e', true),
+            UiAction::OpenEditor(String::new())
+        );
+
+        assert_eq!(
+            controller.handle_key('q', true),
+            UiAction::SetMode(UiMode::Normal)
+        );
+        assert_eq!(controller.mode, UiMode::Normal);
+
+        assert_eq!(
+            controller.handle_key('K', true),
+            UiAction::SetMode(UiMode::Inspector)
+        );
+        assert_eq!(controller.mode, UiMode::Inspector);
+        assert_eq!(
+            controller.handle_key('\x1b', true),
+            UiAction::SetMode(UiMode::Normal)
+        );
     }
 }

@@ -8,7 +8,9 @@ use crate::error::CoreError;
 use crate::theme::ColorPalette;
 use crate::xml_utils::{escape_xml, split_and_escape_lines};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RelationKind {
     Standard,
     Inheritance,

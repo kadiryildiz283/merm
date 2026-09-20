@@ -92,6 +92,7 @@ When a Rust project is bound to `merm`:
 | :--- | :--- | :--- |
 | `:` or `&` | Normal | Open interactive command bar (`&set`, `&check`, `&advice`, `&ok`, `&ai`, etc.) |
 | `t` | Normal (Node selected) | Open Node Test drawer for selected class |
+| `i` or `K` | Normal (Node selected) | Open Node Inspector modal (type, file binding, fields, methods, relations, test status) |
 | `T` | Normal | Cycle color themes (Mocha → Tokyo Night → Nord → Gruvbox → Dracula → Monokai → Terminal → Latte) |
 | `a` or `o` | Normal | Quick add new class or struct node |
 | `c` | Normal | Quick connect nodes |

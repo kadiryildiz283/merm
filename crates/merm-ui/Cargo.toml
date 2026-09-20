@@ -14,3 +14,4 @@ log.workspace = true
 winit = "0.30"
 softbuffer = "0.4"
 tokio.workspace = true
+notify.workspace = true
