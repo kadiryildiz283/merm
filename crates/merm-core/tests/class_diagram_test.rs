@@ -65,3 +65,44 @@ classDiagram
     assert!(rendered_td.width > 0.0);
     assert!(rendered_lr.width > 0.0);
 }
+
+#[test]
+fn test_class_diagram_comments_and_syntax_colors() {
+    let source = r#"
+classDiagram
+    class PaymentProcessor {
+        %% Core financial processor
+        <<interface>>
+        +String apiKey // API authentication key
+        -SecretKey secretKey %% Private cryptographic key
+        +processPayment(amount) bool // Executes external payment
+        #validateToken(token) bool
+    }
+"#;
+
+    let engine = LayoutEngine::default();
+    let rendered = engine.render_with_watchdog(source).expect("Must render payment processor");
+
+    // Verify SVG contents
+    assert!(rendered.svg.contains("PaymentProcessor"));
+    assert!(rendered.svg.contains("Core financial processor"));
+    assert!(rendered.svg.contains("«interface»"));
+    assert!(rendered.svg.contains("apiKey"));
+    assert!(rendered.svg.contains("API authentication key"));
+    assert!(rendered.svg.contains("secretKey"));
+    assert!(rendered.svg.contains("Private cryptographic key"));
+    assert!(rendered.svg.contains("processPayment(amount)"));
+    assert!(rendered.svg.contains("Executes external payment"));
+
+    // Verify DiagramNode metadata
+    assert_eq!(rendered.nodes.len(), 1);
+    let node = &rendered.nodes[0];
+    assert_eq!(node.id, "PaymentProcessor");
+    assert_eq!(node.stereotype.as_deref(), Some("interface"));
+    assert_eq!(node.doc_comment.as_deref(), Some("Core financial processor"));
+    assert_eq!(node.attributes.len(), 2);
+    assert_eq!(node.methods.len(), 2);
+    assert_eq!(node.attributes[0].comment.as_deref(), Some("API authentication key"));
+    assert_eq!(node.attributes[1].comment.as_deref(), Some("Private cryptographic key"));
+    assert_eq!(node.methods[0].comment.as_deref(), Some("Executes external payment"));
+}

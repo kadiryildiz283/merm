@@ -233,8 +233,9 @@ impl AppState {
         let sel_str = if let Some(ref sel_id) = self.active_node_id {
             if let Some(ref diag) = self.current_diagram {
                 if let Some(node) = diag.nodes.iter().find(|n| &n.id == sel_id) {
-                    if !node.attributes.is_empty() || !node.methods.is_empty() {
-                        format!(" [CLASS: {} ({} attrs, {} methods)]", node.id, node.attributes.len(), node.methods.len())
+                    if !node.attributes.is_empty() || !node.methods.is_empty() || node.stereotype.is_some() || node.doc_comment.is_some() {
+                        let type_kind = node.stereotype.as_deref().unwrap_or("CLASS");
+                        format!(" [{}: {} ({} vars, {} funcs)]", type_kind.to_uppercase(), node.id, node.attributes.len(), node.methods.len())
                     } else {
                         format!(" [NODE: {}]", node.label)
                     }

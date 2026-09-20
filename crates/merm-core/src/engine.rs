@@ -34,6 +34,7 @@ pub struct DiagramNode {
     pub id: String,
     pub label: String,
     pub stereotype: Option<String>,
+    pub doc_comment: Option<String>,
     pub lines: Vec<String>,
     pub attributes: Vec<ClassMemberInfo>,
     pub methods: Vec<ClassMemberInfo>,
@@ -209,11 +210,18 @@ impl RenderedDiagram {
                 ));
             }
 
-            let is_class = !node.attributes.is_empty() || !node.methods.is_empty() || node.stereotype.is_some() || self.is_class_diagram;
+            let is_class = !node.attributes.is_empty() || !node.methods.is_empty() || node.stereotype.is_some() || node.doc_comment.is_some() || self.is_class_diagram;
 
             if is_class {
                 // Class Diagram Card
-                let header_h = 44.0f32;
+                let header_h = if node.doc_comment.is_some() && node.stereotype.is_some() {
+                    60.0f32
+                } else if node.doc_comment.is_some() || node.stereotype.is_some() {
+                    50.0f32
+                } else {
+                    42.0f32
+                };
+
                 svg.push_str(&format!(
                     r##"<g id="node_{}" class="class-node">
                     <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}" stroke="{}" stroke-width="{}"/>
@@ -225,33 +233,56 @@ impl RenderedDiagram {
                     node.x, node.y + header_h, node.x + node.width, node.y + header_h, palette.border
                 ));
 
-                // Stereotype pill or label
-                if let Some(ref stereo) = node.stereotype {
+                // Header Contents: Stereotype, Class Name, Doc Comment
+                let center_x = node.x + node.width / 2.0;
+                if let (Some(ref stereo), Some(ref doc)) = (&node.stereotype, &node.doc_comment) {
                     let esc_stereo = escape_xml(stereo);
-                    let badge_text = format!("«{}»", esc_stereo);
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="11" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
-                        node.x + node.width / 2.0, node.y + 14.0, palette.text_accent, badge_text
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="11" font-weight="bold" text-anchor="middle">«{}»</text>"##,
+                        center_x, node.y + 15.0, palette.stereotype_color, esc_stereo
                     ));
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="14" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
-                        node.x + node.width / 2.0, node.y + 30.0, palette.text_main, escape_xml(&node.id)
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="14" font-weight="bold" text-anchor="middle">{}</text>"##,
+                        center_x, node.y + 32.0, palette.text_main, escape_xml(&node.id)
+                    ));
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="10" font-style="italic" text-anchor="middle">// {}</text>"##,
+                        center_x, node.y + 48.0, palette.comment_color, escape_xml(doc)
+                    ));
+                } else if let Some(ref stereo) = node.stereotype {
+                    let esc_stereo = escape_xml(stereo);
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="11" font-weight="bold" text-anchor="middle">«{}»</text>"##,
+                        center_x, node.y + 16.0, palette.stereotype_color, esc_stereo
+                    ));
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="14" font-weight="bold" text-anchor="middle">{}</text>"##,
+                        center_x, node.y + 35.0, palette.text_main, escape_xml(&node.id)
+                    ));
+                } else if let Some(ref doc) = node.doc_comment {
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="14" font-weight="bold" text-anchor="middle">{}</text>"##,
+                        center_x, node.y + 20.0, palette.text_main, escape_xml(&node.id)
+                    ));
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="10" font-style="italic" text-anchor="middle">// {}</text>"##,
+                        center_x, node.y + 38.0, palette.comment_color, escape_xml(doc)
                     ));
                 } else {
                     svg.push_str(&format!(
                         r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="15" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
-                        node.x + node.width / 2.0, node.y + 22.0, palette.text_main, escape_xml(&node.id)
+                        center_x, node.y + header_h / 2.0, palette.text_main, escape_xml(&node.id)
                     ));
                 }
 
-                // Attributes with rich syntax colors
-                let mut cur_y = node.y + header_h + 16.0;
+                // Attributes Compartment
+                let mut cur_y = node.y + header_h + 18.0;
                 if node.attributes.is_empty() {
                     svg.push_str(&format!(
                         r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12" font-style="italic">  (no attributes)</text>"##,
                         node.x + 16.0, cur_y, palette.text_muted
                     ));
-                    cur_y += 20.0;
+                    cur_y += 22.0;
                 } else {
                     for attr in &node.attributes {
                         let vis_color = match attr.visibility {
@@ -260,47 +291,44 @@ impl RenderedDiagram {
                             '#' => &palette.protected_vis,
                             _ => &palette.package_vis,
                         };
+
+                        let type_part = if let Some(ref t) = attr.type_name {
+                            format!(
+                                r##"<tspan fill="{}" font-weight="bold">{} </tspan>"##,
+                                palette.type_color, escape_xml(t)
+                            )
+                        } else {
+                            String::new()
+                        };
+
+                        let var_color = if is_selected { &palette.text_accent } else { &palette.var_color };
+
+                        let comm_part = if let Some(ref comm) = attr.comment {
+                            format!(
+                                r##"<tspan fill="{}" font-style="italic">  // {}</tspan>"##,
+                                palette.comment_color, escape_xml(comm)
+                            )
+                        } else {
+                            String::new()
+                        };
+
                         svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12" font-weight="bold">{}</text>"##,
-                            node.x + 14.0, cur_y, vis_color, attr.visibility
+                            r##"<text x="{}" y="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12"><tspan fill="{}" font-weight="bold">{} </tspan>{}{}<tspan fill="{}">{}</tspan>{}</text>"##,
+                            node.x + 14.0, cur_y, vis_color, attr.visibility, "", type_part, var_color, escape_xml(&attr.name), comm_part
                         ));
 
-                        let mut text_x = node.x + 28.0;
-                        if let Some(ref t) = attr.type_name {
-                            let esc_t = escape_xml(t);
-                            svg.push_str(&format!(
-                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12" font-weight="bold">{} </text>"##,
-                                text_x, cur_y, palette.border, esc_t
-                            ));
-                            text_x += (esc_t.len() as f32 * 7.5) + 6.0;
-                        }
-
-                        let esc_name = escape_xml(&attr.name);
-                        svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12">{}</text>"##,
-                            text_x, cur_y, palette.text_main, esc_name
-                        ));
-                        text_x += (esc_name.len() as f32 * 7.5) + 8.0;
-
-                        if let Some(ref comm) = attr.comment {
-                            svg.push_str(&format!(
-                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="11" font-style="italic">// {}</text>"##,
-                                text_x, cur_y, palette.text_muted, escape_xml(comm)
-                            ));
-                        }
-
-                        cur_y += 20.0;
+                        cur_y += 22.0;
                     }
                 }
 
-                // Divider line
+                // Divider line between attributes and methods
                 svg.push_str(&format!(
                     r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
                     node.x, cur_y, node.x + node.width, cur_y, palette.divider
                 ));
-                cur_y += 16.0;
+                cur_y += 18.0;
 
-                // Methods with rich syntax colors
+                // Methods Compartment
                 if node.methods.is_empty() {
                     svg.push_str(&format!(
                         r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12" font-style="italic">  (no methods)</text>"##,
@@ -314,36 +342,33 @@ impl RenderedDiagram {
                             '#' => &palette.protected_vis,
                             _ => &palette.package_vis,
                         };
+
+                        let method_color = if is_selected { &palette.text_accent } else { &palette.method_color };
+
+                        let ret_part = if let Some(ref t) = meth.type_name {
+                            format!(
+                                r##"<tspan fill="{}">: </tspan><tspan fill="{}" font-weight="bold">{}</tspan>"##,
+                                palette.text_muted, palette.type_color, escape_xml(t)
+                            )
+                        } else {
+                            String::new()
+                        };
+
+                        let comm_part = if let Some(ref comm) = meth.comment {
+                            format!(
+                                r##"<tspan fill="{}" font-style="italic">  // {}</tspan>"##,
+                                palette.comment_color, escape_xml(comm)
+                            )
+                        } else {
+                            String::new()
+                        };
+
                         svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12" font-weight="bold">{}</text>"##,
-                            node.x + 14.0, cur_y, vis_color, meth.visibility
+                            r##"<text x="{}" y="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12"><tspan fill="{}" font-weight="bold">{} </tspan><tspan fill="{}" font-weight="bold">{}</tspan>{}{}</text>"##,
+                            node.x + 14.0, cur_y, vis_color, meth.visibility, method_color, escape_xml(&meth.name), ret_part, comm_part
                         ));
 
-                        let mut text_x = node.x + 28.0;
-                        let esc_name = escape_xml(&meth.name);
-                        svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12">{}</text>"##,
-                            text_x, cur_y, palette.text_main, esc_name
-                        ));
-                        text_x += (esc_name.len() as f32 * 7.5) + 6.0;
-
-                        if let Some(ref t) = meth.type_name {
-                            let esc_t = escape_xml(t);
-                            svg.push_str(&format!(
-                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12" font-weight="bold">: {}</text>"##,
-                                text_x, cur_y, palette.border, esc_t
-                            ));
-                            text_x += (esc_t.len() as f32 * 7.5) + 12.0;
-                        }
-
-                        if let Some(ref comm) = meth.comment {
-                            svg.push_str(&format!(
-                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="11" font-style="italic">// {}</text>"##,
-                                text_x, cur_y, palette.text_muted, escape_xml(comm)
-                            ));
-                        }
-
-                        cur_y += 20.0;
+                        cur_y += 22.0;
                     }
                 }
 
@@ -683,6 +708,7 @@ fn extract_nodes_from_line(line: &str, nodes: &mut Vec<DiagramNode>) {
                         id: node_id,
                         label: clean_lbl.to_string(),
                         stereotype: None,
+                        doc_comment: None,
                         lines,
                         attributes: Vec::new(),
                         methods: Vec::new(),
@@ -789,6 +815,7 @@ impl LayoutEngine {
                         id: edge.from.clone(),
                         label: edge.from.clone(),
                         stereotype: None,
+                        doc_comment: None,
                         lines: vec![esc],
                         attributes: Vec::new(),
                         methods: Vec::new(),
@@ -804,6 +831,7 @@ impl LayoutEngine {
                         id: edge.to.clone(),
                         label: edge.to.clone(),
                         stereotype: None,
+                        doc_comment: None,
                         lines: vec![esc],
                         attributes: Vec::new(),
                         methods: Vec::new(),

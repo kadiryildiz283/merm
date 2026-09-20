@@ -53,6 +53,11 @@ impl ThemeId {
                 package_vis: "#cba6f7".to_string(),
                 edge_stroke: "#89b4fa".to_string(),
                 badge_bg: "#181825".to_string(),
+                var_color: "#cdd6f4".to_string(),
+                type_color: "#f9e2af".to_string(),
+                method_color: "#89b4fa".to_string(),
+                comment_color: "#a6adc8".to_string(),
+                stereotype_color: "#f5c2e7".to_string(),
             },
             ThemeId::TokyoNight => ColorPalette {
                 name: "Tokyo Night".to_string(),
@@ -71,6 +76,11 @@ impl ThemeId {
                 package_vis: "#bb9af7".to_string(),
                 edge_stroke: "#7aa2f7".to_string(),
                 badge_bg: "#16161e".to_string(),
+                var_color: "#c0caf5".to_string(),
+                type_color: "#7dcfff".to_string(),
+                method_color: "#7aa2f7".to_string(),
+                comment_color: "#737aa2".to_string(),
+                stereotype_color: "#bb9af7".to_string(),
             },
             ThemeId::Nord => ColorPalette {
                 name: "Nord".to_string(),
@@ -89,6 +99,11 @@ impl ThemeId {
                 package_vis: "#b48ead".to_string(),
                 edge_stroke: "#81a1c1".to_string(),
                 badge_bg: "#242933".to_string(),
+                var_color: "#eceff4".to_string(),
+                type_color: "#ebcb8b".to_string(),
+                method_color: "#88c0d0".to_string(),
+                comment_color: "#7b88a1".to_string(),
+                stereotype_color: "#b48ead".to_string(),
             },
             ThemeId::GruvboxDark => ColorPalette {
                 name: "Gruvbox Dark".to_string(),
@@ -107,6 +122,11 @@ impl ThemeId {
                 package_vis: "#d3869b".to_string(),
                 edge_stroke: "#83a598".to_string(),
                 badge_bg: "#1d2021".to_string(),
+                var_color: "#ebdbb2".to_string(),
+                type_color: "#fabd2f".to_string(),
+                method_color: "#b8bb26".to_string(),
+                comment_color: "#928374".to_string(),
+                stereotype_color: "#d3869b".to_string(),
             },
             ThemeId::Dracula => ColorPalette {
                 name: "Dracula".to_string(),
@@ -125,6 +145,11 @@ impl ThemeId {
                 package_vis: "#ff79c6".to_string(),
                 edge_stroke: "#bd93f9".to_string(),
                 badge_bg: "#21222c".to_string(),
+                var_color: "#f8f8f2".to_string(),
+                type_color: "#8be9fd".to_string(),
+                method_color: "#50fa7b".to_string(),
+                comment_color: "#6272a4".to_string(),
+                stereotype_color: "#ff79c6".to_string(),
             },
             ThemeId::CatppuccinLatte => ColorPalette {
                 name: "Catppuccin Latte".to_string(),
@@ -143,6 +168,11 @@ impl ThemeId {
                 package_vis: "#8839ef".to_string(),
                 edge_stroke: "#1e66f5".to_string(),
                 badge_bg: "#ccd0da".to_string(),
+                var_color: "#4c4f69".to_string(),
+                type_color: "#df8e1d".to_string(),
+                method_color: "#1e66f5".to_string(),
+                comment_color: "#8c8fa1".to_string(),
+                stereotype_color: "#ea76cb".to_string(),
             },
         }
     }
@@ -166,6 +196,12 @@ pub struct ColorPalette {
     pub package_vis: String,
     pub edge_stroke: String,
     pub badge_bg: String,
+
+    pub var_color: String,
+    pub type_color: String,
+    pub method_color: String,
+    pub comment_color: String,
+    pub stereotype_color: String,
 }
 
 impl Default for ColorPalette {

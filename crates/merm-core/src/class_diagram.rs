@@ -9,6 +9,7 @@ use crate::xml_utils::escape_xml;
 pub struct ClassDef {
     pub id: String,
     pub stereotype: Option<String>,
+    pub doc_comment: Option<String>,
     pub attributes: Vec<ClassMemberInfo>,
     pub methods: Vec<ClassMemberInfo>,
 }
@@ -99,10 +100,34 @@ impl ClassDiagramParser {
         let mut current_dir = LayoutDirection::TD;
 
         let mut current_class_id: Option<String> = None;
+        let mut pending_doc_comment: Option<String> = None;
 
         for line in source.lines() {
             let trimmed = line.trim();
-            if trimmed.is_empty() || trimmed.starts_with("%%") {
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            if trimmed.starts_with("%%") || trimmed.starts_with("//") {
+                let comm = if let Some(stripped) = trimmed.strip_prefix("%%") {
+                    stripped.trim().to_string()
+                } else if let Some(stripped) = trimmed.strip_prefix("//") {
+                    stripped.trim().to_string()
+                } else {
+                    String::new()
+                };
+
+                if !comm.is_empty() {
+                    if let Some(ref class_id) = current_class_id {
+                        if let Some(c) = classes.get_mut(class_id) {
+                            if c.doc_comment.is_none() && c.attributes.is_empty() && c.methods.is_empty() {
+                                c.doc_comment = Some(comm);
+                            }
+                        }
+                    } else {
+                        pending_doc_comment = Some(comm);
+                    }
+                }
                 continue;
             }
 
@@ -157,9 +182,11 @@ impl ClassDiagramParser {
                 let inner = trimmed[6..trimmed.len() - 1].trim();
                 let class_id = inner.split_whitespace().next().unwrap_or("").to_string();
                 if !class_id.is_empty() {
+                    let doc = pending_doc_comment.take();
                     classes.entry(class_id.clone()).or_insert_with(|| ClassDef {
                         id: class_id.clone(),
                         stereotype: None,
+                        doc_comment: doc,
                         attributes: Vec::new(),
                         methods: Vec::new(),
                     });
@@ -177,9 +204,11 @@ impl ClassDiagramParser {
                     name.split_whitespace().next().unwrap_or("").to_string()
                 };
                 if !class_id.is_empty() {
+                    let doc = pending_doc_comment.take();
                     classes.entry(class_id.clone()).or_insert_with(|| ClassDef {
                         id: class_id,
                         stereotype: None,
+                        doc_comment: doc,
                         attributes: Vec::new(),
                         methods: Vec::new(),
                     });
@@ -189,15 +218,18 @@ impl ClassDiagramParser {
 
             // Relationship parsing: A <|-- B : label, A *-- B, etc.
             if let Some(rel) = Self::parse_relation(trimmed) {
+                let doc_from = pending_doc_comment.take();
                 classes.entry(rel.from.clone()).or_insert_with(|| ClassDef {
                     id: rel.from.clone(),
                     stereotype: None,
+                    doc_comment: doc_from,
                     attributes: Vec::new(),
                     methods: Vec::new(),
                 });
                 classes.entry(rel.to.clone()).or_insert_with(|| ClassDef {
                     id: rel.to.clone(),
                     stereotype: None,
+                    doc_comment: None,
                     attributes: Vec::new(),
                     methods: Vec::new(),
                 });
@@ -288,7 +320,6 @@ impl ClassDiagramParser {
 
         let margin_x = 60.0f32;
         let margin_y = 60.0f32;
-        let header_h = 44.0f32;
         let row_spacing = 80.0f32;
         let col_spacing = 60.0f32;
 
@@ -307,23 +338,33 @@ impl ClassDiagramParser {
 
             for class in group {
                 let mut max_char_len = class.id.len();
+                if let Some(ref d) = class.doc_comment {
+                    max_char_len = max_char_len.max(d.len() + 4);
+                }
                 for attr in &class.attributes {
                     let mut len = 2 + attr.name.len();
                     if let Some(ref t) = attr.type_name { len += t.len() + 1; }
-                    if let Some(ref c) = attr.comment { len += c.len() + 4; }
+                    if let Some(ref c) = attr.comment { len += c.len() + 5; }
                     max_char_len = max_char_len.max(len);
                 }
                 for meth in &class.methods {
                     let mut len = 2 + meth.name.len();
                     if let Some(ref t) = meth.type_name { len += t.len() + 3; }
-                    if let Some(ref c) = meth.comment { len += c.len() + 4; }
+                    if let Some(ref c) = meth.comment { len += c.len() + 5; }
                     max_char_len = max_char_len.max(len);
                 }
 
-                let card_w = (max_char_len as f32 * 7.5 + 48.0).clamp(240.0, 520.0);
+                let card_w = (max_char_len as f32 * 7.8 + 52.0).clamp(260.0, 700.0);
                 let attr_count = class.attributes.len().max(1);
                 let meth_count = class.methods.len().max(1);
-                let card_h = header_h + (attr_count as f32 * 20.0) + (meth_count as f32 * 20.0) + 36.0;
+                let class_header_h = if class.doc_comment.is_some() && class.stereotype.is_some() {
+                    60.0f32
+                } else if class.doc_comment.is_some() || class.stereotype.is_some() {
+                    50.0f32
+                } else {
+                    42.0f32
+                };
+                let card_h = class_header_h + (attr_count as f32 * 22.0) + (meth_count as f32 * 22.0) + 36.0;
 
                 let (x, y) = if is_horizontal {
                     (current_offset, cross_offset)
@@ -335,6 +376,7 @@ impl ClassDiagramParser {
                     id: class.id.clone(),
                     label: class.id.clone(),
                     stereotype: class.stereotype.clone(),
+                    doc_comment: class.doc_comment.clone(),
                     lines: vec![escape_xml(&class.id)],
                     attributes: class.attributes.clone(),
                     methods: class.methods.clone(),
