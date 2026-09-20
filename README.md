@@ -7,8 +7,8 @@
 [![CI](https://github.com/kadiryildiz/merm/actions/workflows/ci.yml/badge.svg)](https://github.com/kadiryildiz/merm/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 [![Rust: 1.80+](https://img.shields.io/badge/Rust-1.80%2B-orange.svg)](https://www.rust-lang.org)
-[![Platform: Linux](https://img.shields.io/badge/Platform-Wayland%20%7C%20X11-purple.svg)](#installation)
-[![Themes: Catppuccin | Tokyo Night | Nord](https://img.shields.io/badge/Themes-Catppuccin%20%7C%20Tokyo%20Night%20%7C%20Nord-pink.svg)](#-designer-themes)
+[![Platform: Linux](https://img.shields.io/badge/Platform-Wayland%20%7C%20X11-purple.svg)](#-installation)
+[![Themes: 8 Themes + Terminal Transparent](https://img.shields.io/badge/Themes-8%20Themes%20%2B%20Terminal%20Transparent-pink.svg)](#-designer-themes)
 
 <br/>
 
@@ -37,8 +37,9 @@ Most existing Mermaid diagram tools rely on heavy web stacks: WebKitGTK wrappers
 - 💎 **Zero WebKit / Electron:** 100% native Rust binary using `winit`, `resvg`, and `softbuffer` / `wgpu`.
 - 🎮 **120 FPS Fluid Interactivity:** Smooth GPU-accelerated canvas panning, zooming, and **interactive node drag-and-drop**.
 - 📐 **Deep UML Class & Struct Diagram Support:** Full 3-compartment UML cards with syntax-highlighted visibility tokens (`+`, `-`, `#`, `~`), types, variables, methods, comments, and stereotypes.
-- ⌨️ **Vim Modal Navigation:** Muscle-memory navigation with `hjkl`, `Tab` direction pivoting, `0` fit-to-view, and `/` node fuzzy jump.
-- 🎨 **6 Designer Themes:** Catppuccin Mocha, Tokyo Night, Nord, Gruvbox Dark, Dracula, and Catppuccin Latte.
+- ⌨️ **Vim Modal Navigation:** Muscle-memory navigation with `hjkl`, `Tab` / `p` direction pivoting, `0` fit-to-view, and `/` node fuzzy jump.
+- 🪟 **Terminal-First Transparent Mode:** Canvas transparency with Wayland alpha compositing (`with_transparent(true)`). No unwanted background is forced—your terminal's background, opacity (e.g. Ghostty `0.90`), blur, or desktop shows directly behind the diagram!
+- 🎨 **8 Designer Themes:** Catppuccin Mocha, Tokyo Night, Nord, Gruvbox Dark, Dracula, Monokai, Monokai Terminal, and Catppuccin Latte.
 - 🔌 **Bidirectional Editor IPC:** Real-time sync with Neovim (`merm.nvim`) via secure Unix Domain Sockets authenticated by the Linux kernel (`SO_PEERCRED`).
 - 💤 **0% Idle CPU:** Event-driven architecture with zero polling thrash.
 
@@ -46,29 +47,46 @@ Most existing Mermaid diagram tools rely on heavy web stacks: WebKitGTK wrappers
 
 ## 🏛️ Class & Struct Diagram Typography
 
-`merm` treats UML and Struct diagrams as first-class citizens with code-editor quality syntax highlighting:
+`merm` treats UML and Struct diagrams as first-class citizens with code-editor quality syntax highlighting. Both block syntax and colon syntax are fully supported:
 
 ```mermaid
 classDiagram
-    class OrderService {
-        %% Core order processing service
-        <<interface>>
-        +UUID orderId // Unique order identifier
-        -BigDecimal totalAmount
-        #OrderStatus status
-        +processOrder(cart) Result~Order~
-        -validateInventory(items) bool // Check stock availability
+    direction LR
+
+    %% Core financial processing service
+    class PaymentService {
+        <<service>>
+        -ApiKey apiKey // Encrypted API bearer token
+        -SecretKey secretKey // HMAC-SHA256 signature key
+        #u32 retryCount // Exponential backoff retries
+        +bool isLiveMode // Production environment flag
+        +processPayment(Order order) PaymentResult // Authorizes and captures funds
+        +refund(String transactionId, f64 amount) bool // Processes partial/full refund
+        #validateToken(Token token) bool
     }
+
+    %% Core customer profile and ledger account
+    class CustomerAccount {
+        <<entity>>
+        +String customerId // Unique UUID v4
+        +String emailAddress // Primary billing contact
+        -f64 accountBalance // Available liquid balance
+        +depositFunds(f64 amount) bool // Credits user account
+        +withdrawFunds(f64 amount) bool // Debits user account
+    }
+
+    PaymentService ..> CustomerAccount : manages
 ```
 
 ### Visual Breakdown:
-- **Header:** Stereotype pill (`«interface»`, `«struct»`), bold centered class title, and italic class docstring (`// Core order processing service`).
+- **Header:** Stereotype pill (`«interface»`, `«service»`, `«struct»`, `«entity»`), bold centered class title, and italic class docstring (`// Core financial processing service`).
 - **Visibility Tokens:** `+` (Public: Green), `-` (Private: Red), `#` (Protected: Orange), `~` (Package: Purple).
-- **Data Types:** Distinct, high-contrast syntax color (e.g. Yellow in Catppuccin, Cyan in Tokyo Night, Mint in Nord).
-- **Variable Names:** Dedicated field color (`orderId`, `totalAmount`).
-- **Method Signatures:** Dedicated function color (`processOrder(cart)`), return types, and parameter lists.
+- **Data Types:** Distinct syntax color in bold (e.g. Cyan in Monokai, Yellow in Catppuccin, Mint in Nord).
+- **Variable Names:** Dedicated field color (`apiKey`, `customerId`).
+- **Method Signatures:** Dedicated function color (`processPayment(Order order)`), return types (`PaymentResult`), and parameter lists.
 - **Comments (`//` or `%%`):** Clean, italicized muted comments that never collide with code.
-- **UML Relationships:** Full support for Inheritance (`<|--`), Realization (`<|..`), Composition (`*--`), Aggregation (`o--`), Association (`-->`), and Dependency (`..>`).
+- **Colon Syntax Support:** Supports `ClassName : +type field // comment` and `<<interface>> ClassName`.
+- **UML Relationships:** Full support for Inheritance (`<|--`), Realization (`..|>`), Composition (`*--`), Aggregation (`o--`), Association (`-->`), and Dependency (`..>`).
 
 ---
 
@@ -80,26 +98,30 @@ classDiagram
 | `+` / `-` | Normal | Zoom in / Zoom out |
 | `0` | Normal | Fit diagram to viewport |
 | `Tab` or `p` | Normal | Pivot layout direction (`TD` ↔ `LR` ↔ `RL` ↔ `BT`) |
-| `c` | Normal | Cycle color themes |
+| `t` | Normal | Cycle color themes (Mocha → Tokyo Night → Nord → Gruvbox → Dracula → Monokai → Terminal → Latte) |
 | `n` / `N` | Normal | Select and focus next / previous node |
 | `/` or `f` | Normal | Enter Search / Jump mode |
 | **Left Click + Drag** | Canvas | Pan canvas |
-| **Left Click on Node** | Node | **Drag & drop node** (connected arrows dynamically bend!) |
-| **Mouse Wheel** | Canvas | Zoom in / out centered at cursor |
+| **Left Click on Node** | Node | **Drag & drop node** (connected relationship arrows dynamically bend!) |
+| **Mouse Wheel** | Canvas | Zoom in / out centered at cursor position |
 | `q` or `Esc` | Any | Quit application |
 
 ---
 
 ## 🎨 Designer Themes
 
-Switch themes on-the-fly using the `c` key or start with `--theme <NAME>`:
+Switch themes on-the-fly using the `t` key in the GUI or start with `--theme <NAME>`:
 
-1. **Catppuccin Mocha** (Default developer dark theme)
-2. **Tokyo Night** (Vibrant Japanese neon aesthetics)
-3. **Nord** (Arctic, north-bluish clean palette)
-4. **Gruvbox Dark** (Warm, retro groove contrast)
-5. **Dracula** (Gothic dark contrast)
-6. **Catppuccin Latte** (High-legibility light theme)
+| Theme Name | CLI Identifier | Description |
+| :--- | :--- | :--- |
+| **Monokai Terminal** | `terminal`, `term`, `monokai-terminal`, `transparent` | **Terminal-native transparent canvas.** Imposes no canvas background—inherits your terminal's background, opacity (e.g. Ghostty `0.90`), blur, or desktop wallpaper. Cards feature high-contrast translucent fills (`#181816f0`) and vibrant Monokai syntax highlighting. |
+| **Monokai** | `monokai`, `monokai-remastered` | Classic Monokai Remastered dark theme with deep `#0c0c0c` background and crisp neon syntax. |
+| **Catppuccin Mocha** | `catppuccin`, `catppuccin-mocha`, `mocha` | Soothing developer dark theme (Default). |
+| **Tokyo Night** | `tokyo-night`, `tokyo` | Vibrant Japanese neon aesthetics with deep blues and purples. |
+| **Nord** | `nord` | Arctic, north-bluish clean and calm palette. |
+| **Gruvbox Dark** | `gruvbox`, `gruvbox-dark` | Warm retro groove contrast for warm-palette lovers. |
+| **Dracula** | `dracula` | Gothic high-contrast dark theme with pink and green accents. |
+| **Catppuccin Latte** | `latte`, `catppuccin-latte`, `light` | High-legibility light theme for bright environments. |
 
 ---
 
@@ -125,11 +147,17 @@ install -Dm755 target/release/merm ~/.local/bin/merm
 
 ### Opening Files & Piping Stdin
 ```bash
-# Open a diagram file
-merm diagram.md
+# Open with default showcase diagram
+merm
 
-# Open with a specific theme
-merm -t tokyo-night architecture.md
+# Open with Terminal Transparent mode (inherits Ghostty/terminal opacity & blur)
+merm -t terminal diagram.md
+
+# Open with Monokai Remastered
+merm -t monokai diagram.md
+
+# Open example diagram
+merm examples/class_diagram.md
 
 # Pipe from stdin (ideal for fzf, git diff, or cat)
 cat class_diagram.mmd | merm -
@@ -139,7 +167,12 @@ merm --headless path/to/diagram.md
 ```
 
 ### FreeDesktop App Launcher
-`merm` includes a FreeDesktop-compliant desktop file (`packaging/merm.desktop`) and vector icon (`packaging/merm.svg`), allowing it to appear directly in your application launcher (Rofi, Wofi, GNOME, KDE, Hyprland).
+`merm` includes a FreeDesktop-compliant desktop file (`packaging/merm.desktop`) and vector icon (`packaging/merm.svg`), allowing it to appear directly in your application launcher (Rofi, Wofi, GNOME, KDE, Hyprland, Sway).
+
+```bash
+install -Dm644 packaging/merm.desktop ~/.local/share/applications/merm.desktop
+install -Dm644 packaging/merm.svg ~/.local/share/icons/hicolor/scalable/apps/merm.svg
+```
 
 ---
 
@@ -156,7 +189,7 @@ merm --headless path/to/diagram.md
     local merm = require("merm")
     merm.setup({
       auto_open = false,
-      theme = "catppuccin-mocha",
+      theme = "terminal", -- Use terminal transparent mode
     })
 
     -- Keybindings
@@ -174,10 +207,11 @@ merm --headless path/to/diagram.md
 
 ```toml
 # merm configuration file
-theme = "catppuccin-mocha"
+# Available themes: catppuccin-mocha, tokyo-night, nord, gruvbox, dracula, monokai, terminal, latte
+theme = "terminal"
 
 # Default diagram direction: "TD", "LR", "RL", "BT"
-direction = "TD"
+direction = "LR"
 ```
 
 ---
@@ -186,15 +220,17 @@ direction = "TD"
 
 ```text
 merm/
-├── Cargo.toml               # Workspace manifest
+├── Cargo.toml               # Workspace manifest with dual MIT/Apache-2.0 licenses
 ├── crates/
-│   ├── merm-core/           # AST parser, direction pivoting, UML engine
-│   ├── merm-render/         # WGPU pipeline, SIMD SvgRasterizer, LOD cache
-│   ├── merm-ui/             # winit 0.30, softbuffer, modal state machine
+│   ├── merm-core/           # AST parser, direction pivoting, UML engine, 8 themes
+│   ├── merm-render/         # WGPU pipeline, SIMD SvgRasterizer, alpha channel support
+│   ├── merm-ui/             # winit 0.30, softbuffer, Wayland transparency, modal controller
 │   ├── merm-ipc/            # SO_PEERCRED authenticated Unix socket server
 │   └── merm-cli/            # Binary entry point and config loader
 ├── editors/
 │   └── merm.nvim/           # Neovim plugin for live editor sync
+├── examples/
+│   └── class_diagram.md     # Rich UML showcase diagram
 └── packaging/
     ├── merm.desktop         # FreeDesktop app launcher entry
     ├── merm.svg             # Application vector icon
