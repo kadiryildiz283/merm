@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use crate::ast_rewriter::LayoutDirection;
 use crate::engine::{ClassMemberInfo, DiagramNode, FlowEdge, RelationKind, RenderedDiagram};
 use crate::error::CoreError;
 use crate::theme::ColorPalette;
 use crate::xml_utils::escape_xml;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct ClassDef {
@@ -120,7 +120,10 @@ impl ClassDiagramParser {
                 if !comm.is_empty() {
                     if let Some(ref class_id) = current_class_id {
                         if let Some(c) = classes.get_mut(class_id) {
-                            if c.doc_comment.is_none() && c.attributes.is_empty() && c.methods.is_empty() {
+                            if c.doc_comment.is_none()
+                                && c.attributes.is_empty()
+                                && c.methods.is_empty()
+                            {
                                 c.doc_comment = Some(comm);
                             }
                         }
@@ -244,7 +247,10 @@ impl ClassDiagramParser {
 
     fn parse_relation(line: &str) -> Option<ClassRelation> {
         let (rel_part, label) = if let Some(colon_idx) = line.find(':') {
-            (line[..colon_idx].trim(), Some(line[colon_idx + 1..].trim().to_string()))
+            (
+                line[..colon_idx].trim(),
+                Some(line[colon_idx + 1..].trim().to_string()),
+            )
         } else {
             (line.trim(), None)
         };
@@ -268,10 +274,18 @@ impl ClassDiagramParser {
         for &(token, kind, left_to_right) in &patterns {
             if let Some(idx) = rel_part.find(token) {
                 let from = rel_part[..idx].trim().trim_matches('"').trim().to_string();
-                let to = rel_part[idx + token.len()..].trim().trim_matches('"').trim().to_string();
+                let to = rel_part[idx + token.len()..]
+                    .trim()
+                    .trim_matches('"')
+                    .trim()
+                    .to_string();
 
                 if !from.is_empty() && !to.is_empty() {
-                    let (f, t) = if left_to_right { (from, to) } else { (to, from) };
+                    let (f, t) = if left_to_right {
+                        (from, to)
+                    } else {
+                        (to, from)
+                    };
                     return Some(ClassRelation {
                         from: f,
                         to: t,
@@ -343,14 +357,22 @@ impl ClassDiagramParser {
                 }
                 for attr in &class.attributes {
                     let mut len = 2 + attr.name.len();
-                    if let Some(ref t) = attr.type_name { len += t.len() + 1; }
-                    if let Some(ref c) = attr.comment { len += c.len() + 5; }
+                    if let Some(ref t) = attr.type_name {
+                        len += t.len() + 1;
+                    }
+                    if let Some(ref c) = attr.comment {
+                        len += c.len() + 5;
+                    }
                     max_char_len = max_char_len.max(len);
                 }
                 for meth in &class.methods {
                     let mut len = 2 + meth.name.len();
-                    if let Some(ref t) = meth.type_name { len += t.len() + 3; }
-                    if let Some(ref c) = meth.comment { len += c.len() + 5; }
+                    if let Some(ref t) = meth.type_name {
+                        len += t.len() + 3;
+                    }
+                    if let Some(ref c) = meth.comment {
+                        len += c.len() + 5;
+                    }
                     max_char_len = max_char_len.max(len);
                 }
 
@@ -364,7 +386,8 @@ impl ClassDiagramParser {
                 } else {
                     42.0f32
                 };
-                let card_h = class_header_h + (attr_count as f32 * 22.0) + (meth_count as f32 * 22.0) + 36.0;
+                let card_h =
+                    class_header_h + (attr_count as f32 * 22.0) + (meth_count as f32 * 22.0) + 36.0;
 
                 let (x, y) = if is_horizontal {
                     (current_offset, cross_offset)
@@ -405,16 +428,23 @@ impl ClassDiagramParser {
                 from: rel.from.clone(),
                 to: rel.to.clone(),
                 label: rel.label.clone(),
-                dotted: rel.kind == RelationKind::Realization || rel.kind == RelationKind::Dependency,
+                dotted: rel.kind == RelationKind::Realization
+                    || rel.kind == RelationKind::Dependency,
                 thick: false,
                 kind: rel.kind,
             });
         }
 
         let (total_w, total_h) = if is_horizontal {
-            ((current_offset + margin_x).max(900.0), (max_cross + margin_y).max(600.0))
+            (
+                (current_offset + margin_x).max(900.0),
+                (max_cross + margin_y).max(600.0),
+            )
         } else {
-            ((max_cross + margin_x).max(900.0), (current_offset + margin_y).max(600.0))
+            (
+                (max_cross + margin_x).max(900.0),
+                (current_offset + margin_y).max(600.0),
+            )
         };
 
         let mut diagram = RenderedDiagram {

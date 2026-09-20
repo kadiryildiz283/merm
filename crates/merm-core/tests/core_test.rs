@@ -31,7 +31,8 @@ fn test_ast_direction_pivoting() {
 
 #[test]
 fn test_ast_node_isolation() {
-    let source = "flowchart TD\n    A[Order] --> B[Billing]\n    B --> C[Shipping]\n    D[Auth] --> A";
+    let source =
+        "flowchart TD\n    A[Order] --> B[Billing]\n    B --> C[Shipping]\n    D[Auth] --> A";
     let isolated = AstRewriter::isolate_node(source, "Billing");
     assert!(isolated.contains("Billing"));
     assert!(!isolated.contains("Shipping"));

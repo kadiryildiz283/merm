@@ -1,6 +1,6 @@
+use crate::error::IpcError;
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::UnixStream;
-use crate::error::IpcError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PeerCredentials {

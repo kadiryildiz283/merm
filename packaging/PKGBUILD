@@ -1,0 +1,37 @@
+# Maintainer: Kadir Yildiz <kadiry.ra@gmail.com>
+pkgname=merm-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="Blazingly fast native Linux desktop viewer for Mermaid diagrams with Vim modal navigation and deep class diagram support"
+arch=('x86_64' 'aarch64')
+url="https://github.com/kadiryildiz/merm"
+license=('MIT' 'Apache-2.0')
+depends=('gcc-libs' 'glibc')
+makedepends=('cargo')
+optdepends=(
+    'noto-fonts-emoji: Full color emoji support in diagrams'
+    'vulkan-driver: Hardware accelerated WGPU rendering'
+)
+provides=('merm')
+conflicts=('merm')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "merm-$pkgver"
+    cargo build --release --locked --all-features
+}
+
+check() {
+    cd "merm-$pkgver"
+    cargo test --release --locked --workspace
+}
+
+package() {
+    cd "merm-$pkgver"
+    install -Dm755 "target/release/merm" "$pkgdir/usr/bin/merm"
+    install -Dm644 "packaging/merm.desktop" "$pkgdir/usr/share/applications/merm.desktop"
+    install -Dm644 "packaging/merm.svg" "$pkgdir/usr/share/icons/hicolor/scalable/apps/merm.svg"
+    install -Dm644 "LICENSE-MIT" "$pkgdir/usr/share/licenses/$pkgname/LICENSE-MIT"
+    install -Dm644 "README.md" "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

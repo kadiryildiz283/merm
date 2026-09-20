@@ -14,7 +14,9 @@ fn default_socket_path() -> PathBuf {
     let pid = process::id();
 
     if let Ok(runtime_dir) = env::var("XDG_RUNTIME_DIR") {
-        PathBuf::from(runtime_dir).join("merm").join(format!("merm-{}.sock", pid))
+        PathBuf::from(runtime_dir)
+            .join("merm")
+            .join(format!("merm-{}.sock", pid))
     } else {
         PathBuf::from(format!("/tmp/merm-{}", uid)).join(format!("merm-{}.sock", pid))
     }
@@ -24,7 +26,10 @@ fn config_path() -> PathBuf {
     if let Ok(config_home) = env::var("XDG_CONFIG_HOME") {
         PathBuf::from(config_home).join("merm").join("config.toml")
     } else if let Ok(home) = env::var("HOME") {
-        PathBuf::from(home).join(".config").join("merm").join("config.toml")
+        PathBuf::from(home)
+            .join(".config")
+            .join("merm")
+            .join("config.toml")
     } else {
         PathBuf::from(".config/merm/config.toml")
     }
@@ -161,7 +166,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Determine active theme (CLI override > Config file > Default Catppuccin Mocha)
-    let active_theme = cli_theme.or_else(load_theme_from_config).unwrap_or(ThemeId::CatppuccinMocha);
+    let active_theme = cli_theme
+        .or_else(load_theme_from_config)
+        .unwrap_or(ThemeId::CatppuccinMocha);
 
     // Read diagram content
     let content = match file_path.as_deref() {
@@ -201,7 +208,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(server)
         }
         Err(e) => {
-            log::warn!("Could not bind IPC server ({}). Continuing without editor sync.", e);
+            log::warn!(
+                "Could not bind IPC server ({}). Continuing without editor sync.",
+                e
+            );
             None
         }
     };
@@ -213,7 +223,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let has_display = env::var("WAYLAND_DISPLAY").is_ok() || env::var("DISPLAY").is_ok();
 
     if headless || !has_display {
-        println!("\n[merm] Running in headless mode. Socket: {:?}", socket_path);
+        println!(
+            "\n[merm] Running in headless mode. Socket: {:?}",
+            socket_path
+        );
         println!("[merm] Active HUD: {}", app.hud_status());
 
         // Drain single tick
@@ -230,7 +243,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
     } else {
-        println!("\n[merm] Launching interactive GUI window. Socket: {:?}", socket_path);
+        println!(
+            "\n[merm] Launching interactive GUI window. Socket: {:?}",
+            socket_path
+        );
         println!("[merm] Active HUD: {}", app.hud_status());
 
         let window = MermAppWindow::new(app, Some(ipc_rx));

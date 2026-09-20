@@ -6,7 +6,9 @@ fn test_rquickjs_runtime_eval() {
     let context = Context::full(&runtime).expect("Failed to create QuickJS context");
 
     let result: String = context.with(|ctx| {
-        let val: String = ctx.eval("`merm-quickjs-${2000 + 26}`").expect("Eval failed");
+        let val: String = ctx
+            .eval("`merm-quickjs-${2000 + 26}`")
+            .expect("Eval failed");
         val
     });
 

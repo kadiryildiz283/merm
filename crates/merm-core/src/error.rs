@@ -5,7 +5,9 @@ pub enum CoreError {
     #[error("No diagram found in input")]
     NoDiagramFound,
 
-    #[error("Execution timed out after {0:?}. Diagram layout calculation exceeded execution budget.")]
+    #[error(
+        "Execution timed out after {0:?}. Diagram layout calculation exceeded execution budget."
+    )]
     ExecutionTimeout(std::time::Duration),
 
     #[error("Memory quota exceeded: {0} bytes allocated")]

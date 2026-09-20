@@ -68,7 +68,8 @@ pub struct RenderedDiagram {
 
 impl RenderedDiagram {
     pub fn regenerate_svg(&mut self, palette: &ColorPalette) {
-        let is_horizontal = self.direction == LayoutDirection::LR || self.direction == LayoutDirection::RL;
+        let is_horizontal =
+            self.direction == LayoutDirection::LR || self.direction == LayoutDirection::RL;
 
         let mut max_x = self.width;
         let mut max_y = self.height;
@@ -130,23 +131,72 @@ impl RenderedDiagram {
 
             if let (Some(f), Some(t)) = (from_node, to_node) {
                 let (sx, sy, ex, ey) = if is_horizontal {
-                    (f.x + f.width, f.y + f.height / 2.0, t.x, t.y + t.height / 2.0)
+                    (
+                        f.x + f.width,
+                        f.y + f.height / 2.0,
+                        t.x,
+                        t.y + t.height / 2.0,
+                    )
                 } else {
-                    (f.x + f.width / 2.0, f.y + f.height, t.x + t.width / 2.0, t.y)
+                    (
+                        f.x + f.width / 2.0,
+                        f.y + f.height,
+                        t.x + t.width / 2.0,
+                        t.y,
+                    )
                 };
 
                 let (stroke_color, marker_attr, dash_style, stroke_w) = match edge.kind {
-                    RelationKind::Inheritance => (&palette.edge_stroke, r#"marker-end="url(#inheritance)""#, "", "2"),
-                    RelationKind::Realization => (&palette.public_vis, r#"marker-end="url(#realization)""#, r#"stroke-dasharray="6,4" "#, "2"),
-                    RelationKind::Composition => (&palette.private_vis, r#"marker-end="url(#composition)""#, "", "2"),
-                    RelationKind::Aggregation => (&palette.protected_vis, r#"marker-end="url(#aggregation)""#, "", "2"),
-                    RelationKind::Association => (&palette.border, r#"marker-end="url(#association)""#, "", "2"),
-                    RelationKind::Dependency => (&palette.package_vis, r#"marker-end="url(#dependency)""#, r#"stroke-dasharray="4,4" "#, "2"),
+                    RelationKind::Inheritance => (
+                        &palette.edge_stroke,
+                        r#"marker-end="url(#inheritance)""#,
+                        "",
+                        "2",
+                    ),
+                    RelationKind::Realization => (
+                        &palette.public_vis,
+                        r#"marker-end="url(#realization)""#,
+                        r#"stroke-dasharray="6,4" "#,
+                        "2",
+                    ),
+                    RelationKind::Composition => (
+                        &palette.private_vis,
+                        r#"marker-end="url(#composition)""#,
+                        "",
+                        "2",
+                    ),
+                    RelationKind::Aggregation => (
+                        &palette.protected_vis,
+                        r#"marker-end="url(#aggregation)""#,
+                        "",
+                        "2",
+                    ),
+                    RelationKind::Association => (
+                        &palette.border,
+                        r#"marker-end="url(#association)""#,
+                        "",
+                        "2",
+                    ),
+                    RelationKind::Dependency => (
+                        &palette.package_vis,
+                        r#"marker-end="url(#dependency)""#,
+                        r#"stroke-dasharray="4,4" "#,
+                        "2",
+                    ),
                     RelationKind::Link => (&palette.divider, "", "", "1.5"),
                     RelationKind::Standard => {
-                        let dash = if edge.dotted { r#"stroke-dasharray="6,4" "# } else { "" };
+                        let dash = if edge.dotted {
+                            r#"stroke-dasharray="6,4" "#
+                        } else {
+                            ""
+                        };
                         let w = if edge.thick { "3.5" } else { "2" };
-                        (&palette.edge_stroke, r#"marker-end="url(#flow-arrow)""#, dash, w)
+                        (
+                            &palette.edge_stroke,
+                            r#"marker-end="url(#flow-arrow)""#,
+                            dash,
+                            w,
+                        )
                     }
                 };
 
@@ -199,7 +249,11 @@ impl RenderedDiagram {
         // Draw nodes
         for node in &self.nodes {
             let is_selected = self.selected_node_id.as_deref() == Some(&node.id);
-            let border_color = if is_selected { &palette.text_accent } else { &palette.border };
+            let border_color = if is_selected {
+                &palette.text_accent
+            } else {
+                &palette.border
+            };
             let border_width = if is_selected { "3" } else { "2" };
 
             // Outer selection halo
@@ -210,7 +264,11 @@ impl RenderedDiagram {
                 ));
             }
 
-            let is_class = !node.attributes.is_empty() || !node.methods.is_empty() || node.stereotype.is_some() || node.doc_comment.is_some() || self.is_class_diagram;
+            let is_class = !node.attributes.is_empty()
+                || !node.methods.is_empty()
+                || node.stereotype.is_some()
+                || node.doc_comment.is_some()
+                || self.is_class_diagram;
 
             if is_class {
                 // Class Diagram Card
@@ -295,18 +353,24 @@ impl RenderedDiagram {
                         let type_part = if let Some(ref t) = attr.type_name {
                             format!(
                                 r##"<tspan fill="{}" font-weight="bold">{} </tspan>"##,
-                                palette.type_color, escape_xml(t)
+                                palette.type_color,
+                                escape_xml(t)
                             )
                         } else {
                             String::new()
                         };
 
-                        let var_color = if is_selected { &palette.text_accent } else { &palette.var_color };
+                        let var_color = if is_selected {
+                            &palette.text_accent
+                        } else {
+                            &palette.var_color
+                        };
 
                         let comm_part = if let Some(ref comm) = attr.comment {
                             format!(
                                 r##"<tspan fill="{}" font-style="italic">  // {}</tspan>"##,
-                                palette.comment_color, escape_xml(comm)
+                                palette.comment_color,
+                                escape_xml(comm)
                             )
                         } else {
                             String::new()
@@ -324,7 +388,11 @@ impl RenderedDiagram {
                 // Divider line between attributes and methods
                 svg.push_str(&format!(
                     r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
-                    node.x, cur_y, node.x + node.width, cur_y, palette.divider
+                    node.x,
+                    cur_y,
+                    node.x + node.width,
+                    cur_y,
+                    palette.divider
                 ));
                 cur_y += 18.0;
 
@@ -343,12 +411,18 @@ impl RenderedDiagram {
                             _ => &palette.package_vis,
                         };
 
-                        let method_color = if is_selected { &palette.text_accent } else { &palette.method_color };
+                        let method_color = if is_selected {
+                            &palette.text_accent
+                        } else {
+                            &palette.method_color
+                        };
 
                         let ret_part = if let Some(ref t) = meth.type_name {
                             format!(
                                 r##"<tspan fill="{}">: </tspan><tspan fill="{}" font-weight="bold">{}</tspan>"##,
-                                palette.text_muted, palette.type_color, escape_xml(t)
+                                palette.text_muted,
+                                palette.type_color,
+                                escape_xml(t)
                             )
                         } else {
                             String::new()
@@ -357,7 +431,8 @@ impl RenderedDiagram {
                         let comm_part = if let Some(ref comm) = meth.comment {
                             format!(
                                 r##"<tspan fill="{}" font-style="italic">  // {}</tspan>"##,
-                                palette.comment_color, escape_xml(comm)
+                                palette.comment_color,
+                                escape_xml(comm)
                             )
                         } else {
                             String::new()
@@ -384,14 +459,20 @@ impl RenderedDiagram {
 
                 let center_x = node.x + node.width / 2.0;
                 if node.lines.len() <= 1 {
-                    let text = node.lines.first().cloned().unwrap_or_else(|| escape_xml(&node.label));
+                    let text = node
+                        .lines
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| escape_xml(&node.label));
                     svg.push_str(&format!(
                         r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
                         center_x, node.y + node.height / 2.0, palette.text_main, text
                     ));
                 } else {
                     let line_height = 18.0f32;
-                    let start_y = node.y + (node.height - (node.lines.len() as f32 * line_height)) / 2.0 + 10.0;
+                    let start_y = node.y
+                        + (node.height - (node.lines.len() as f32 * line_height)) / 2.0
+                        + 10.0;
                     for (idx, line) in node.lines.iter().enumerate() {
                         let y_pos = start_y + (idx as f32 * line_height);
                         let (weight, size, fill) = if idx == 0 {
@@ -439,7 +520,12 @@ fn clean_node_id(raw: &str) -> String {
         .next()
         .unwrap_or("")
         .trim();
-    token.split(":::").next().unwrap_or(token).trim().to_string()
+    token
+        .split(":::")
+        .next()
+        .unwrap_or(token)
+        .trim()
+        .to_string()
 }
 
 fn clean_label(raw: &str) -> Option<String> {
@@ -956,10 +1042,7 @@ impl LayoutEngine {
                 if layer.is_empty() {
                     continue;
                 }
-                let col_w: f32 = layer
-                    .iter()
-                    .map(|&i| nodes[i].width)
-                    .fold(0.0f32, f32::max);
+                let col_w: f32 = layer.iter().map(|&i| nodes[i].width).fold(0.0f32, f32::max);
                 let col_h: f32 = layer.iter().map(|&i| nodes[i].height).sum::<f32>()
                     + (layer.len().saturating_sub(1) as f32 * v_gap);
 

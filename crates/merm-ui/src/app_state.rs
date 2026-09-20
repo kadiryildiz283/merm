@@ -1,7 +1,9 @@
-use std::time::Duration;
-use merm_core::{AstRewriter, DiagramExtractor, LayoutDirection, LayoutEngine, RenderedDiagram, ThemeId};
+use merm_core::{
+    AstRewriter, DiagramExtractor, LayoutDirection, LayoutEngine, RenderedDiagram, ThemeId,
+};
 use merm_ipc::EditorCommand;
 use merm_render::{BackendType, RenderEngine, Transform2D};
+use std::time::Duration;
 
 use crate::modal::{ModalController, UiAction, UiMode};
 
@@ -62,7 +64,8 @@ impl AppState {
 
         match engine.render_with_watchdog(&source_to_render) {
             Ok(diagram) => {
-                self.transform.fit_to_viewport(diagram.width, diagram.height, 1280.0, 720.0);
+                self.transform
+                    .fit_to_viewport(diagram.width, diagram.height, 1280.0, 720.0);
                 self.current_diagram = Some(diagram);
                 self.status_message = format!(
                     "Loaded diagram (Backend: {:?})",
@@ -82,7 +85,9 @@ impl AppState {
                 if let Some(sym) = params.symbol {
                     // Match node by ID or label
                     if let Some(ref diag) = self.current_diagram {
-                        if let Some(node) = diag.nodes.iter().find(|n| n.id == sym || n.label == sym) {
+                        if let Some(node) =
+                            diag.nodes.iter().find(|n| n.id == sym || n.label == sym)
+                        {
                             self.active_node_id = Some(node.id.clone());
                             self.status_message = format!("Focused node: {}", node.label);
                         }
@@ -122,13 +127,13 @@ impl AppState {
             }
             UiAction::ResetView => {
                 if let Some(ref diag) = self.current_diagram {
-                    self.transform.fit_to_viewport(diag.width, diag.height, 1280.0, 720.0);
+                    self.transform
+                        .fit_to_viewport(diag.width, diag.height, 1280.0, 720.0);
                 }
             }
             UiAction::PivotDirection => {
                 let next_dir = self.active_direction.next();
-                self.diagram_source =
-                    AstRewriter::pivot_direction(&self.diagram_source, next_dir);
+                self.diagram_source = AstRewriter::pivot_direction(&self.diagram_source, next_dir);
                 self.active_direction = next_dir;
                 self.recalculate_diagram();
                 self.status_message = format!("Pivoted direction to {}", next_dir.as_str());
@@ -153,7 +158,10 @@ impl AppState {
                             .and_then(|id| diag.nodes.iter().position(|n| &n.id == id))
                             .unwrap_or(0);
                         let next_idx = (cur_idx + 1) % diag.nodes.len();
-                        Some((diag.nodes[next_idx].id.clone(), diag.nodes[next_idx].label.clone()))
+                        Some((
+                            diag.nodes[next_idx].id.clone(),
+                            diag.nodes[next_idx].label.clone(),
+                        ))
                     }
                 });
                 if let Some((next_id, next_label)) = next_info {
@@ -176,7 +184,10 @@ impl AppState {
                         } else {
                             cur_idx - 1
                         };
-                        Some((diag.nodes[prev_idx].id.clone(), diag.nodes[prev_idx].label.clone()))
+                        Some((
+                            diag.nodes[prev_idx].id.clone(),
+                            diag.nodes[prev_idx].label.clone(),
+                        ))
                     }
                 });
                 if let Some((prev_id, prev_label)) = prev_info {
@@ -233,9 +244,19 @@ impl AppState {
         let sel_str = if let Some(ref sel_id) = self.active_node_id {
             if let Some(ref diag) = self.current_diagram {
                 if let Some(node) = diag.nodes.iter().find(|n| &n.id == sel_id) {
-                    if !node.attributes.is_empty() || !node.methods.is_empty() || node.stereotype.is_some() || node.doc_comment.is_some() {
+                    if !node.attributes.is_empty()
+                        || !node.methods.is_empty()
+                        || node.stereotype.is_some()
+                        || node.doc_comment.is_some()
+                    {
                         let type_kind = node.stereotype.as_deref().unwrap_or("CLASS");
-                        format!(" [{}: {} ({} vars, {} funcs)]", type_kind.to_uppercase(), node.id, node.attributes.len(), node.methods.len())
+                        format!(
+                            " [{}: {} ({} vars, {} funcs)]",
+                            type_kind.to_uppercase(),
+                            node.id,
+                            node.attributes.len(),
+                            node.methods.len()
+                        )
                     } else {
                         format!(" [NODE: {}]", node.label)
                     }
@@ -251,7 +272,12 @@ impl AppState {
 
         format!(
             "[MODE: {}] [{}] [{}] [Zoom: {:.1}x]{} | {}",
-            mode_str, self.theme.palette().name, backend_str, self.transform.scale, sel_str, self.status_message
+            mode_str,
+            self.theme.palette().name,
+            backend_str,
+            self.transform.scale,
+            sel_str,
+            self.status_message
         )
     }
 }

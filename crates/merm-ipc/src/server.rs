@@ -76,18 +76,17 @@ impl IpcServer {
         &self.socket_path
     }
 
-    fn run_listener(
-        listener: UnixListener,
-        running: Arc<AtomicBool>,
-        tx: Sender<EditorCommand>,
-    ) {
+    fn run_listener(listener: UnixListener, running: Arc<AtomicBool>, tx: Sender<EditorCommand>) {
         while running.load(Ordering::SeqCst) {
             match listener.accept() {
                 Ok((stream, _addr)) => {
                     // Check peer credentials with SO_PEERCRED
                     match verify_peer(&stream) {
                         Ok(creds) => {
-                            log::debug!("Accepted authenticated IPC connection from PID {}", creds.pid);
+                            log::debug!(
+                                "Accepted authenticated IPC connection from PID {}",
+                                creds.pid
+                            );
                             let tx_clone = tx.clone();
                             thread::spawn(move || {
                                 Self::handle_client(stream, tx_clone);

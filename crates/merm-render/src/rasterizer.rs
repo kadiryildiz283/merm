@@ -1,5 +1,5 @@
-use std::sync::{Arc, Mutex};
 use crate::transform::Transform2D;
+use std::sync::{Arc, Mutex};
 
 pub struct SvgRasterizer {
     fontdb: Arc<resvg::usvg::fontdb::Database>,
@@ -31,7 +31,10 @@ impl SvgRasterizer {
         ];
         let mut mono_match = None;
         for cand in &mono_candidates {
-            if fontdb.faces().any(|f| f.families.iter().any(|(name, _)| name == *cand)) {
+            if fontdb
+                .faces()
+                .any(|f| f.families.iter().any(|(name, _)| name == *cand))
+            {
                 mono_match = Some((*cand).to_string());
                 break;
             }
@@ -55,7 +58,10 @@ impl SvgRasterizer {
         ];
         let mut sans_match = None;
         for cand in &sans_candidates {
-            if fontdb.faces().any(|f| f.families.iter().any(|(name, _)| name == *cand)) {
+            if fontdb
+                .faces()
+                .any(|f| f.families.iter().any(|(name, _)| name == *cand))
+            {
                 sans_match = Some((*cand).to_string());
                 break;
             }
@@ -116,7 +122,11 @@ impl SvgRasterizer {
         };
 
         let (bg_r, bg_g, bg_b) = if let Some(c) = bg_color {
-            (((c >> 16) & 0xFF) as u8, ((c >> 8) & 0xFF) as u8, (c & 0xFF) as u8)
+            (
+                ((c >> 16) & 0xFF) as u8,
+                ((c >> 8) & 0xFF) as u8,
+                (c & 0xFF) as u8,
+            )
         } else {
             (30, 30, 46)
         };

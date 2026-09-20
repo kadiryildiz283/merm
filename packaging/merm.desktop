@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=merm
+GenericName=Mermaid Diagram Viewer
+Comment=High-performance native Linux desktop viewer for Mermaid diagrams with Vim modal navigation
+Exec=merm %f
+Icon=merm
+Terminal=false
+Categories=Development;Graphics;Viewer;
+MimeType=text/markdown;text/x-markdown;text/plain;
+StartupNotify=true
+Keywords=mermaid;diagram;viewer;markdown;uml;flowchart;

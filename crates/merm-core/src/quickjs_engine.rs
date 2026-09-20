@@ -1,5 +1,5 @@
-use rquickjs::{Context, Runtime};
 use crate::error::CoreError;
+use rquickjs::{Context, Runtime};
 
 pub struct QuickJsEngine {
     #[allow(dead_code)]
@@ -15,10 +15,12 @@ impl Default for QuickJsEngine {
 
 impl QuickJsEngine {
     pub fn new() -> Result<Self, CoreError> {
-        let runtime = Runtime::new()
-            .map_err(|e| CoreError::SyntaxError(format!("Failed to create QuickJS runtime: {e}")))?;
-        let context = Context::full(&runtime)
-            .map_err(|e| CoreError::SyntaxError(format!("Failed to create QuickJS context: {e}")))?;
+        let runtime = Runtime::new().map_err(|e| {
+            CoreError::SyntaxError(format!("Failed to create QuickJS runtime: {e}"))
+        })?;
+        let context = Context::full(&runtime).map_err(|e| {
+            CoreError::SyntaxError(format!("Failed to create QuickJS context: {e}"))
+        })?;
 
         // Initialize minimal synthetic browser environment (window, document, console)
         context.with(|ctx| -> Result<(), CoreError> {
@@ -42,8 +44,9 @@ impl QuickJsEngine {
                     body: { appendChild: function() {} }
                 };
             "#;
-            let _: () = ctx.eval(polyfill)
-                .map_err(|e| CoreError::SyntaxError(format!("Polyfill initialization failed: {e}")))?;
+            let _: () = ctx.eval(polyfill).map_err(|e| {
+                CoreError::SyntaxError(format!("Polyfill initialization failed: {e}"))
+            })?;
             Ok(())
         })?;
 
@@ -53,11 +56,13 @@ impl QuickJsEngine {
     /// Evaluates JavaScript code in the QuickJS environment and returns the string result.
     pub fn eval(&self, script: &str) -> Result<String, CoreError> {
         self.context.with(|ctx| {
-            let result: rquickjs::Value = ctx.eval(script)
+            let result: rquickjs::Value = ctx
+                .eval(script)
                 .map_err(|e| CoreError::SyntaxError(format!("QuickJS eval failed: {e}")))?;
-            
+
             if let Some(s) = result.as_string() {
-                s.to_string().map_err(|e| CoreError::SyntaxError(e.to_string()))
+                s.to_string()
+                    .map_err(|e| CoreError::SyntaxError(e.to_string()))
             } else {
                 Ok(format!("{:?}", result))
             }

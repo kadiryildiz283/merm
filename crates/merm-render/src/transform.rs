@@ -17,7 +17,11 @@ impl Default for Transform2D {
 
 impl Transform2D {
     pub fn new(pan_x: f32, pan_y: f32, scale: f32) -> Self {
-        Self { pan_x, pan_y, scale }
+        Self {
+            pan_x,
+            pan_y,
+            scale,
+        }
     }
 
     pub fn pan(&mut self, dx: f32, dy: f32) {

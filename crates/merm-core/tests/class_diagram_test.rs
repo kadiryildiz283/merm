@@ -22,7 +22,9 @@ classDiagram
     assert!(ClassDiagramParser::is_class_diagram(source));
 
     let engine = LayoutEngine::default();
-    let rendered = engine.render_with_watchdog(source).expect("Must render class diagram");
+    let rendered = engine
+        .render_with_watchdog(source)
+        .expect("Must render class diagram");
 
     // Check SVG contents
     assert!(rendered.svg.contains("<svg"));
@@ -59,8 +61,10 @@ classDiagram
     Animal <|-- Duck
 "#;
 
-    let rendered_td = ClassDiagramParser::parse_and_render(source, Some(LayoutDirection::TD), None).unwrap();
-    let rendered_lr = ClassDiagramParser::parse_and_render(source, Some(LayoutDirection::LR), None).unwrap();
+    let rendered_td =
+        ClassDiagramParser::parse_and_render(source, Some(LayoutDirection::TD), None).unwrap();
+    let rendered_lr =
+        ClassDiagramParser::parse_and_render(source, Some(LayoutDirection::LR), None).unwrap();
 
     assert!(rendered_td.width > 0.0);
     assert!(rendered_lr.width > 0.0);
@@ -81,7 +85,9 @@ classDiagram
 "#;
 
     let engine = LayoutEngine::default();
-    let rendered = engine.render_with_watchdog(source).expect("Must render payment processor");
+    let rendered = engine
+        .render_with_watchdog(source)
+        .expect("Must render payment processor");
 
     // Verify SVG contents
     assert!(rendered.svg.contains("PaymentProcessor"));
@@ -99,10 +105,22 @@ classDiagram
     let node = &rendered.nodes[0];
     assert_eq!(node.id, "PaymentProcessor");
     assert_eq!(node.stereotype.as_deref(), Some("interface"));
-    assert_eq!(node.doc_comment.as_deref(), Some("Core financial processor"));
+    assert_eq!(
+        node.doc_comment.as_deref(),
+        Some("Core financial processor")
+    );
     assert_eq!(node.attributes.len(), 2);
     assert_eq!(node.methods.len(), 2);
-    assert_eq!(node.attributes[0].comment.as_deref(), Some("API authentication key"));
-    assert_eq!(node.attributes[1].comment.as_deref(), Some("Private cryptographic key"));
-    assert_eq!(node.methods[0].comment.as_deref(), Some("Executes external payment"));
+    assert_eq!(
+        node.attributes[0].comment.as_deref(),
+        Some("API authentication key")
+    );
+    assert_eq!(
+        node.attributes[1].comment.as_deref(),
+        Some("Private cryptographic key")
+    );
+    assert_eq!(
+        node.methods[0].comment.as_deref(),
+        Some("Executes external payment")
+    );
 }

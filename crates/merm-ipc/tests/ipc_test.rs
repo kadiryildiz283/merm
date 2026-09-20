@@ -3,9 +3,7 @@ use std::os::unix::net::UnixStream;
 use std::sync::mpsc::channel;
 use std::time::Duration;
 
-use merm_ipc::{
-    verify_peer, EditorCommand, IpcServer, JsonRpcRequest, JsonRpcResponse,
-};
+use merm_ipc::{verify_peer, EditorCommand, IpcServer, JsonRpcRequest, JsonRpcResponse};
 
 #[test]
 fn test_jsonrpc_parsing() {
@@ -47,11 +45,20 @@ fn test_ipc_server_lifecycle_and_peercred() {
 
     let mut reader = BufReader::new(client.try_clone().unwrap());
     let mut resp_line = String::new();
-    reader.read_line(&mut resp_line).expect("Must read ping response");
+    reader
+        .read_line(&mut resp_line)
+        .expect("Must read ping response");
 
-    let resp: JsonRpcResponse = serde_json::from_str(resp_line.trim()).expect("Must parse response");
-    assert_eq!(resp.id, Some(serde_json::Value::String("ping-1".to_string())));
-    assert_eq!(resp.result, Some(serde_json::Value::String("pong".to_string())));
+    let resp: JsonRpcResponse =
+        serde_json::from_str(resp_line.trim()).expect("Must parse response");
+    assert_eq!(
+        resp.id,
+        Some(serde_json::Value::String("ping-1".to_string()))
+    );
+    assert_eq!(
+        resp.result,
+        Some(serde_json::Value::String("pong".to_string()))
+    );
 
     // Send cursor_moved
     let cursor_msg = r#"{"jsonrpc":"2.0","id":2,"method":"cursor_moved","params":{"file":"test.md","line":10,"column":5,"symbol":null}}"#;
@@ -72,5 +79,8 @@ fn test_ipc_server_lifecycle_and_peercred() {
 
     // Drop server, socket must be cleaned up
     drop(server);
-    assert!(!socket_path.exists(), "Socket file should be removed on drop");
+    assert!(
+        !socket_path.exists(),
+        "Socket file should be removed on drop"
+    );
 }

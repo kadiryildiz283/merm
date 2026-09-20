@@ -68,9 +68,8 @@ impl LodCache {
             .min_by_key(|(_, tex)| tex.last_accessed_seq)
         {
             if let Some(evicted) = self.textures.remove(&oldest_level) {
-                self.current_memory_bytes = self
-                    .current_memory_bytes
-                    .saturating_sub(evicted.data_bytes);
+                self.current_memory_bytes =
+                    self.current_memory_bytes.saturating_sub(evicted.data_bytes);
                 log::debug!(
                     "Evicted LOD level {} from cache to preserve memory envelope",
                     oldest_level

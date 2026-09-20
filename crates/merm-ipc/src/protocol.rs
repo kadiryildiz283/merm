@@ -54,7 +54,10 @@ pub enum EditorCommand {
     JumpToDefinition(JumpToDefinitionParams),
     Reload(ReloadParams),
     Ping,
-    Custom { method: String, params: Option<serde_json::Value> },
+    Custom {
+        method: String,
+        params: Option<serde_json::Value>,
+    },
 }
 
 impl JsonRpcRequest {
@@ -73,7 +76,8 @@ impl JsonRpcRequest {
             }
             "jump_to_definition" | "merm/jump_to_definition" => {
                 if let Some(ref p) = self.params {
-                    if let Ok(params) = serde_json::from_value::<JumpToDefinitionParams>(p.clone()) {
+                    if let Ok(params) = serde_json::from_value::<JumpToDefinitionParams>(p.clone())
+                    {
                         return EditorCommand::JumpToDefinition(params);
                     }
                 }
