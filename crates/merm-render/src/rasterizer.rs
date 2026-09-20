@@ -170,4 +170,54 @@ impl SvgRasterizer {
         *pixmap_guard = Some(pixmap);
         Ok(())
     }
+
+    pub fn rasterize_overlay(
+        &self,
+        svg_data: &str,
+        width: u32,
+        height: u32,
+        dest_buffer: &mut [u32],
+    ) -> Result<(), String> {
+        if width == 0 || height == 0 || dest_buffer.len() < (width * height) as usize {
+            return Err("Invalid buffer dimensions".to_string());
+        }
+
+        let opt = resvg::usvg::Options {
+            fontdb: self.fontdb.clone(),
+            ..Default::default()
+        };
+        let tree = resvg::usvg::Tree::from_str(svg_data, &opt)
+            .map_err(|e| format!("Failed to parse overlay SVG: {}", e))?;
+
+        let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)
+            .ok_or_else(|| "Failed to allocate tiny-skia pixmap".to_string())?;
+
+        let render_ts = resvg::tiny_skia::Transform::identity();
+        resvg::render(&tree, render_ts, &mut pixmap.as_mut());
+
+        let rgba = pixmap.data();
+        let (chunks, _) = rgba.as_chunks::<4>();
+        let len = chunks.len().min(dest_buffer.len());
+        for (dst, chunk) in dest_buffer[..len].iter_mut().zip(&chunks[..len]) {
+            let src_a = chunk[3] as u32;
+            if src_a == 255 {
+                *dst = 0xff00_0000
+                    | ((chunk[0] as u32) << 16)
+                    | ((chunk[1] as u32) << 8)
+                    | (chunk[2] as u32);
+            } else if src_a > 0 {
+                let inv_a = 255 - src_a;
+                let dst_val = *dst;
+                let dst_r = (dst_val >> 16) & 0xff;
+                let dst_g = (dst_val >> 8) & 0xff;
+                let dst_b = dst_val & 0xff;
+                let out_r = ((chunk[0] as u32 * src_a + dst_r * inv_a) / 255) & 0xff;
+                let out_g = ((chunk[1] as u32 * src_a + dst_g * inv_a) / 255) & 0xff;
+                let out_b = ((chunk[2] as u32 * src_a + dst_b * inv_a) / 255) & 0xff;
+                *dst = 0xff00_0000 | (out_r << 16) | (out_g << 8) | out_b;
+            }
+        }
+
+        Ok(())
+    }
 }

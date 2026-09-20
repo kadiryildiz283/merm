@@ -68,13 +68,13 @@ direction = "TD"
 
 fn print_usage() {
     eprintln!(
-        r#"merm: High-Performance Native Linux Diagram Viewer for Modal Editors
+        r#"merm: High-Performance Native Linux Architecture & Diagram Studio
 
 USAGE:
-    merm [OPTIONS] [FILE]
+    merm [OPTIONS] [FILE_OR_PROJECT_DIR]
 
 ARGS:
-    <FILE>    Path to Markdown or Mermaid file (reads from stdin if '-' or omitted)
+    <FILE_OR_PROJECT_DIR>  Path to Markdown/Mermaid file, or Rust project root directory to bind
 
 OPTIONS:
     -t, --theme <NAME>   Set color theme (catppuccin, tokyo-night, nord, gruvbox, dracula, monokai, terminal, latte)
@@ -84,20 +84,33 @@ OPTIONS:
     -h, --help           Print help information
     -V, --version        Print version information
 
-VIM KEYBINDINGS (Modal Navigation in GUI):
+INTERACTIVE COMMAND PROTOCOL (& / : prefix):
+    &set [PATH]          Bind current Mermaid diagram to a Rust project root (.merm/manifest.json)
+    &check               Verify compatibility between Rust project and Mermaid (AST + build + LLM)
+    &advice <PROMPT>     Request architectural advice and proposal from LLM (read-only)
+    &ok                  Apply recommendation from &advice with automatic snapshot and rollback
+    &ai <PROMPT>         Autonomous multi-file refactoring/scaffolding with cargo check verification
+    :add <kind> <Name>   Add class, struct, or enum to diagram and scaffold Rust file
+    :connect <A> <B>     Connect two nodes with dependency arrow
+    :test [Node] [Input] Execute node test harness with input/output capture
+    :help                Show interactive command guide
+
+KEYBINDINGS (NORMAL mode):
+    : or &               Open interactive command bar
+    t                    Execute test harness on selected node (input/output drawer)
+    T                    Cycle color themes
+    a or o               Add new class / struct
+    c                    Connect nodes
+    e                    Open bound Rust source file in $EDITOR
     h, j, k, l           Pan left, down, up, right
     +, -                 Zoom in, zoom out
     0                    Reset view (fit to screen)
     p, Tab               Pivot diagram direction (TD -> LR -> RL -> BT)
-    t                    Cycle color themes (Mocha -> Tokyo Night -> Nord -> Gruvbox -> Dracula -> Monokai -> Terminal -> Latte)
     n, N                 Select next / previous node
     / or f               Fuzzy search nodes
-    Mouse Drag           Pan canvas
+    Mouse Drag           Move node or pan canvas
     Mouse Wheel          Zoom in / out
-    q, Esc               Quit
-
-CONFIG:
-    ~/.config/merm/config.toml
+    q, Esc               Quit / close modal
 "#
     );
 }
@@ -171,6 +184,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(ThemeId::CatppuccinMocha);
 
     // Read diagram content
+    let mut bound_dir: Option<String> = None;
     let content = match file_path.as_deref() {
         Some("-") | None => {
             if atty_is_terminal() {
@@ -220,7 +234,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 buffer
             }
         }
-        Some(path) => fs::read_to_string(path)?,
+        Some(path) => {
+            let p = std::path::Path::new(path);
+            if p.is_dir() {
+                bound_dir = Some(path.to_string());
+                "classDiagram\n".to_string()
+            } else {
+                fs::read_to_string(path)?
+            }
+        }
     };
 
     // Initialize IPC Server with SO_PEERCRED protection
@@ -241,6 +263,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Initialize AppState with active theme
     let mut app = AppState::with_theme(content, force_software_render, active_theme);
+    if let Some(dir) = bound_dir {
+        let _ = app.bind_project(Some(&dir));
+    }
     log::info!("Status: {}", app.hud_status());
 
     let has_display = env::var("WAYLAND_DISPLAY").is_ok() || env::var("DISPLAY").is_ok();

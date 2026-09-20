@@ -2,6 +2,7 @@ use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::time::Instant;
 
+use merm_core::escape_xml;
 use merm_ipc::EditorCommand;
 use merm_render::SvgRasterizer;
 use winit::application::ApplicationHandler;
@@ -11,7 +12,7 @@ use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
 use crate::app_state::AppState;
-use crate::modal::UiAction;
+use crate::modal::{UiAction, UiMode};
 
 fn parse_hex_color(hex: &str) -> u32 {
     let s = hex.trim().to_lowercase();
@@ -114,8 +115,7 @@ impl MermAppWindow {
         }
 
         let bg_color = parse_hex_color(&self.app_state.theme.palette().background);
-        let hud_color = parse_hex_color(&self.app_state.theme.palette().badge_bg);
-        let hud_height = 28u32;
+        let hud_height = 32u32;
 
         if !self.initial_fit_done {
             if let Some(ref diagram) = self.app_state.current_diagram {
@@ -130,7 +130,7 @@ impl MermAppWindow {
             }
         }
 
-        // Always fill background first so the window is never pitch-black
+        // Always fill background first
         buffer.fill(bg_color);
 
         // Rasterize active diagram SVG using tiny-skia + resvg
@@ -147,16 +147,187 @@ impl MermAppWindow {
             }
         }
 
-        // Draw HUD bar at the bottom: 28px height with current theme color
-        if height > hud_height {
-            let start_idx = ((height - hud_height) * width) as usize;
-            if start_idx < buffer.len() {
-                buffer[start_idx..].fill(hud_color);
+        // Render vector UI Overlay (HUD bar, Command input, NodeTest drawer, Report modal)
+        if let Some(overlay_svg) = Self::build_overlay_svg(&self.app_state, width, height) {
+            if let Err(e) =
+                self.rasterizer
+                    .rasterize_overlay(&overlay_svg, width, height, &mut buffer)
+            {
+                log::warn!("Overlay rasterization warning: {}", e);
             }
         }
 
         buffer.present().expect("Failed to present buffer");
         self.last_frame = Instant::now();
+    }
+
+    fn build_overlay_svg(app_state: &AppState, width: u32, height: u32) -> Option<String> {
+        let palette = app_state.theme.palette();
+        let mut svg = String::new();
+        svg.push_str(&format!(
+            r#"<svg width="{}" height="{}" viewBox="0 0 {} {}" xmlns="http://www.w3.org/2000/svg">"#,
+            width, height, width, height
+        ));
+
+        // 1. Bottom HUD / Command bar
+        match app_state.modal.mode {
+            UiMode::Command => {
+                let bar_h = 36.0;
+                let bar_y = height as f32 - bar_h;
+                svg.push_str(&format!(
+                    r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}" opacity="0.95"/>"##,
+                    bar_y, width, bar_h, palette.card_bg
+                ));
+                svg.push_str(&format!(
+                    r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
+                    bar_y, width, bar_y, palette.badge_bg
+                ));
+
+                let cmd_text = format!("{}█", escape_xml(&app_state.modal.command_buffer));
+                svg.push_str(&format!(
+                    r##"<text x="16" y="{}" fill="{}" font-family="monospace" font-size="14" font-weight="bold">{}</text>"##,
+                    bar_y + 23.0, palette.text_main, cmd_text
+                ));
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12" text-anchor="end">Enter: Run | Esc: Cancel</text>"##,
+                    width as f32 - 16.0, bar_y + 23.0, palette.text_sub
+                ));
+            }
+            UiMode::NodeTest => {
+                let drawer_h = 110.0;
+                let drawer_y = height as f32 - drawer_h;
+                let active_node = app_state
+                    .modal
+                    .active_test_node_id
+                    .as_deref()
+                    .unwrap_or("Unknown");
+
+                svg.push_str(&format!(
+                    r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}" opacity="0.95"/>"##,
+                    drawer_y, width, drawer_h, palette.card_bg
+                ));
+                svg.push_str(&format!(
+                    r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="2"/>"##,
+                    drawer_y, width, drawer_y, palette.method_color
+                ));
+
+                // Title line
+                svg.push_str(&format!(
+                    r##"<text x="16" y="{}" fill="{}" font-family="monospace" font-size="14" font-weight="bold">🚀 Test Node Harness: &lt;{}&gt;</text>"##,
+                    drawer_y + 26.0, palette.method_color, escape_xml(active_node)
+                ));
+
+                // Input line
+                let input_disp =
+                    format!("Input: {}█", escape_xml(&app_state.modal.test_input_buffer));
+                svg.push_str(&format!(
+                    r##"<text x="16" y="{}" fill="{}" font-family="monospace" font-size="13">{}</text>"##,
+                    drawer_y + 54.0, palette.text_main, input_disp
+                ));
+
+                // Status or output preview
+                let status_preview = if let Some(ref res) = app_state.last_execution_result {
+                    let st = if res.success { "✔ PASS" } else { "✖ FAIL" };
+                    format!(
+                        "Result: [{}] ({}ms) -> {}",
+                        st,
+                        res.duration_ms,
+                        escape_xml(&res.output_payload)
+                    )
+                } else {
+                    "Type JSON or string input. Press [Enter] to run test harness, [Esc] to exit."
+                        .to_string()
+                };
+
+                svg.push_str(&format!(
+                    r##"<text x="16" y="{}" fill="{}" font-family="monospace" font-size="12">{}</text>"##,
+                    drawer_y + 82.0, palette.text_sub, status_preview
+                ));
+            }
+            UiMode::Report => {
+                // Floating modal centered on screen
+                let modal_w = (width as f32 - 120.0).max(400.0);
+                let modal_h = (height as f32 - 120.0).max(300.0);
+                let modal_x = (width as f32 - modal_w) / 2.0;
+                let modal_y = (height as f32 - modal_h) / 2.0;
+
+                // Dim backdrop
+                svg.push_str(&format!(
+                    r##"<rect x="0" y="0" width="{}" height="{}" fill="#000000" opacity="0.6"/>"##,
+                    width, height
+                ));
+
+                // Modal dialog window
+                svg.push_str(&format!(
+                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}" stroke="{}" stroke-width="2"/>"##,
+                    modal_x, modal_y, modal_w, modal_h, palette.background, palette.badge_bg
+                ));
+
+                // Header bar
+                svg.push_str(&format!(
+                    r##"<rect x="{}" y="{}" width="{}" height="36" rx="8" fill="{}"/>"##,
+                    modal_x, modal_y, modal_w, palette.badge_bg
+                ));
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="14" font-weight="bold">Diagnostic &amp; Architecture Report</text>"##,
+                    modal_x + 16.0, modal_y + 23.0, palette.text_main
+                ));
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12" text-anchor="end">Press [Esc] or [q] to close</text>"##,
+                    modal_x + modal_w - 16.0, modal_y + 23.0, palette.text_sub
+                ));
+
+                // Report text lines
+                if let Some(ref content) = app_state.report_content {
+                    let mut line_y = modal_y + 60.0;
+                    for line in content.lines().take(28) {
+                        let color = if line.starts_with("✔") || line.starts_with("Status: PASS") {
+                            &palette.method_color
+                        } else if line.starts_with("✖") || line.starts_with("Status: FAIL") {
+                            &palette.var_color
+                        } else if line.starts_with("===") || line.starts_with("---") {
+                            &palette.badge_bg
+                        } else {
+                            &palette.text_main
+                        };
+
+                        svg.push_str(&format!(
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12">{}</text>"##,
+                            modal_x + 20.0, line_y, color, escape_xml(line)
+                        ));
+                        line_y += 18.0;
+                    }
+                }
+            }
+            _ => {
+                // Normal mode HUD bar at bottom
+                let bar_h = 30.0;
+                let bar_y = height as f32 - bar_h;
+                svg.push_str(&format!(
+                    r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}" opacity="0.95"/>"##,
+                    bar_y, width, bar_h, palette.card_bg
+                ));
+                svg.push_str(&format!(
+                    r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
+                    bar_y, width, bar_y, palette.badge_bg
+                ));
+
+                let status_line = escape_xml(&app_state.hud_status());
+                svg.push_str(&format!(
+                    r##"<text x="14" y="{}" fill="{}" font-family="monospace" font-size="12" font-weight="bold">{}</text>"##,
+                    bar_y + 19.0, palette.text_main, status_line
+                ));
+
+                let hints = ":/& Command | t Test Node | Tab Pivot | a Add | e Edit";
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">{}</text>"##,
+                    width as f32 - 14.0, bar_y + 19.0, palette.text_sub, hints
+                ));
+            }
+        }
+
+        svg.push_str("</svg>");
+        Some(svg)
     }
 }
 
@@ -215,13 +386,30 @@ impl ApplicationHandler for MermAppWindow {
                     },
                 ..
             } => {
+                let has_selected = self.app_state.active_node_id.is_some();
                 let action = match logical_key {
-                    Key::Character(c) => self
-                        .app_state
-                        .modal
-                        .handle_key(c.chars().next().unwrap_or(' ')),
-                    Key::Named(NamedKey::Escape) => UiAction::Quit,
-                    Key::Named(NamedKey::Tab) => UiAction::PivotDirection,
+                    Key::Character(c) => {
+                        let ch = c.chars().next().unwrap_or(' ');
+                        self.app_state.modal.handle_key(ch, has_selected)
+                    }
+                    Key::Named(NamedKey::Backspace) => self.app_state.modal.handle_backspace(),
+                    Key::Named(NamedKey::Enter) => {
+                        self.app_state.modal.handle_key('\n', has_selected)
+                    }
+                    Key::Named(NamedKey::Escape) => {
+                        if self.app_state.modal.mode != UiMode::Normal {
+                            self.app_state.modal.handle_key('\x1b', has_selected)
+                        } else {
+                            UiAction::Quit
+                        }
+                    }
+                    Key::Named(NamedKey::Tab) => {
+                        if self.app_state.modal.mode == UiMode::Normal {
+                            UiAction::PivotDirection
+                        } else {
+                            UiAction::None
+                        }
+                    }
                     _ => UiAction::None,
                 };
 
@@ -229,7 +417,13 @@ impl ApplicationHandler for MermAppWindow {
                     UiAction::Quit => {
                         event_loop.exit();
                     }
-                    UiAction::None => {}
+                    UiAction::None => {
+                        if let Some(ref w) = self.window {
+                            let title = format!("merm | {}", self.app_state.hud_status());
+                            w.set_title(&title);
+                            w.request_redraw();
+                        }
+                    }
                     other => {
                         self.app_state.handle_key_action(other);
                         if let Some(ref w) = self.window {
@@ -339,18 +533,20 @@ impl ApplicationHandler for MermAppWindow {
                         if attr_count > 0 || meth_count > 0 {
                             if let Some(comm) = comment_preview {
                                 self.app_state.status_message = format!(
-                                    "Class: {} ({} vars, {} methods) | // {}",
+                                    "Class: {} ({} vars, {} methods) | // {} | Press 't' to test",
                                     node_id, attr_count, meth_count, comm
                                 );
                             } else {
                                 self.app_state.status_message = format!(
-                                    "Class: {} ({} vars, {} methods) | Drag to move",
+                                    "Class: {} ({} vars, {} methods) | Drag to move | Press 't' to test",
                                     node_id, attr_count, meth_count
                                 );
                             }
                         } else {
-                            self.app_state.status_message =
-                                format!("Selected: [{}] (drag with mouse)", node_label);
+                            self.app_state.status_message = format!(
+                                "Selected: [{}] (drag to move | Press 't' to test)",
+                                node_label
+                            );
                         }
                         if let Some(ref w) = self.window {
                             let title = format!("merm | {}", self.app_state.hud_status());
@@ -377,7 +573,6 @@ impl ApplicationHandler for MermAppWindow {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        // If there are incoming IPC messages from the editor, process them and request redraw
         if let Some(ref rx) = self.ipc_rx {
             let mut got_cmd = false;
             while let Ok(cmd) = rx.try_recv() {

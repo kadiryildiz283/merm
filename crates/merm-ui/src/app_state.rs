@@ -1,8 +1,13 @@
 use merm_core::{
-    AstRewriter, DiagramExtractor, LayoutDirection, LayoutEngine, RenderedDiagram, ThemeId,
+    AdviceProposal, Advisor, AstRewriter, CheckReport, Command, DiagramExtractor, ExecutionResult,
+    LayoutDirection, LayoutEngine, NodeBinding, NodeKind, NodeRunner, ProjectManifest,
+    RenderedDiagram, RustScanner, Scaffolder, ThemeId,
 };
 use merm_ipc::EditorCommand;
 use merm_render::{BackendType, RenderEngine, Transform2D};
+use std::env;
+use std::path::PathBuf;
+use std::process::Command as StdCommand;
 use std::time::Duration;
 
 use crate::modal::{ModalController, UiAction, UiMode};
@@ -18,6 +23,15 @@ pub struct AppState {
     pub theme: ThemeId,
     pub status_message: String,
     pub is_running: bool,
+
+    // Project binding and execution subsystem
+    pub manifest: Option<ProjectManifest>,
+    pub pending_advice: Option<AdviceProposal>,
+    pub last_check_report: Option<CheckReport>,
+    pub last_execution_result: Option<ExecutionResult>,
+    pub report_content: Option<String>,
+    pub is_busy: bool,
+    pub busy_message: String,
 }
 
 impl AppState {
@@ -43,7 +57,24 @@ impl AppState {
             theme,
             status_message: "Ready".to_string(),
             is_running: true,
+            manifest: None,
+            pending_advice: None,
+            last_check_report: None,
+            last_execution_result: None,
+            report_content: None,
+            is_busy: false,
+            busy_message: String::new(),
         };
+
+        // Try detecting current directory as a Rust project automatically
+        if let Ok(curr) = env::current_dir() {
+            if let Some(cargo_root) = ProjectManifest::detect_cargo_root(&curr) {
+                if let Ok(man) = ProjectManifest::load_or_init(&cargo_root) {
+                    state.status_message = format!("Auto-bound to project: {}", man.project_name);
+                    state.manifest = Some(man);
+                }
+            }
+        }
 
         state.recalculate_diagram();
         state
@@ -78,12 +109,318 @@ impl AppState {
         }
     }
 
+    pub fn bind_project(&mut self, target_path: Option<&str>) -> Result<(), String> {
+        let path = if let Some(p) = target_path {
+            PathBuf::from(p)
+        } else {
+            env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+        };
+
+        let cargo_root = ProjectManifest::detect_cargo_root(&path)
+            .ok_or_else(|| format!("No Cargo.toml found in {:?} or any parent directory", path))?;
+
+        let mut manifest = ProjectManifest::load_or_init(&cargo_root).map_err(|e| e.to_string())?;
+
+        // Scan project and auto-bind symbols to manifest
+        if let Ok(scan_report) = RustScanner::scan_project(&cargo_root) {
+            for sym in &scan_report.symbols {
+                manifest.add_binding(NodeBinding {
+                    id: sym.name.clone(),
+                    file: sym.file_path.clone(),
+                    symbol: sym.name.clone(),
+                    kind: match sym.kind {
+                        merm_core::RustSymbolKind::Struct => "struct".to_string(),
+                        merm_core::RustSymbolKind::Enum => "enum".to_string(),
+                        merm_core::RustSymbolKind::Module => "module".to_string(),
+                        merm_core::RustSymbolKind::Function => "fn".to_string(),
+                    },
+                    executable: sym.is_executable,
+                    entrypoint: sym.primary_entrypoint.clone(),
+                    input_type: Some("String".to_string()),
+                    output_type: Some("String".to_string()),
+                });
+            }
+            let _ = manifest.save();
+
+            // If current diagram is empty or minimal, populate with scanned class diagram
+            if self.diagram_source.trim().is_empty() || self.diagram_source.trim() == "classDiagram"
+            {
+                self.diagram_source = RustScanner::generate_mermaid_class_diagram(&scan_report);
+                self.recalculate_diagram();
+            }
+        }
+
+        let name = manifest.project_name.clone();
+        let bound_count = manifest.bindings.len();
+        self.manifest = Some(manifest);
+
+        self.status_message = format!(
+            "Bound to project '{}' ({} modules mapped to diagram classes)",
+            name, bound_count
+        );
+
+        Ok(())
+    }
+
+    pub fn execute_command_str(&mut self, raw: &str) {
+        let cmd = Command::parse(raw);
+        match cmd {
+            Command::Set { path } => {
+                let p_str = path.as_deref();
+                if let Err(e) = self.bind_project(p_str) {
+                    self.status_message = format!("&set error: {}", e);
+                }
+            }
+            Command::Check => {
+                if let Some(ref manifest) = self.manifest {
+                    self.status_message =
+                        "Running &check (verifying Rust AST, build & LLM)...".to_string();
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build();
+                    if let Ok(runtime) = rt {
+                        match runtime.block_on(Advisor::run_check(manifest, &self.diagram_source)) {
+                            Ok(report) => {
+                                let summary = report.format_text();
+                                self.status_message = format!("&check: {}", report.summary());
+                                self.report_content = Some(summary);
+                                self.last_check_report = Some(report);
+                                self.modal.mode = UiMode::Report;
+                            }
+                            Err(e) => {
+                                self.status_message = format!("&check failed: {}", e);
+                            }
+                        }
+                    }
+                } else {
+                    self.status_message = "No project bound! Run `&set [PATH]` first.".to_string();
+                }
+            }
+            Command::Advice { prompt } => {
+                if let Some(ref manifest) = self.manifest {
+                    self.status_message = format!("Querying LLM for advice on '{}'...", prompt);
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build();
+                    if let Ok(runtime) = rt {
+                        match runtime.block_on(Advisor::request_advice(
+                            manifest,
+                            &self.diagram_source,
+                            &prompt,
+                        )) {
+                            Ok(proposal) => {
+                                self.status_message =
+                                    "&advice ready. Type `&ok` to apply proposal.".to_string();
+                                self.report_content = Some(format!(
+                                    "=== Architectural Advice Proposal ===\nQuery: {}\n\n{}\n\nType `&ok` to apply changes.",
+                                    proposal.prompt, proposal.analysis
+                                ));
+                                self.pending_advice = Some(proposal);
+                                self.modal.mode = UiMode::Report;
+                            }
+                            Err(e) => {
+                                self.status_message = format!("&advice failed: {}", e);
+                            }
+                        }
+                    }
+                } else {
+                    self.status_message = "No project bound! Run `&set [PATH]` first.".to_string();
+                }
+            }
+            Command::Ok => {
+                if let Some(ref proposal) = self.pending_advice.clone() {
+                    if let Some(ref mut manifest) = self.manifest {
+                        match Advisor::apply_advice(manifest, proposal, &self.diagram_source) {
+                            Ok(msg) => {
+                                self.status_message = format!("&ok: {}", msg);
+                                if let Some(ref new_diag) = proposal.suggested_diagram {
+                                    self.diagram_source = new_diag.clone();
+                                    self.recalculate_diagram();
+                                }
+                                self.pending_advice = None;
+                            }
+                            Err(e) => {
+                                self.status_message = format!("&ok rollback: {}", e);
+                            }
+                        }
+                    }
+                } else {
+                    self.status_message =
+                        "No pending advice to apply. Run `&advice <QUERY>` first.".to_string();
+                }
+            }
+            Command::Ai { prompt } => {
+                if let Some(ref mut manifest) = self.manifest {
+                    self.status_message = format!("Running autonomous &ai for '{}'...", prompt);
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build();
+                    if let Ok(runtime) = rt {
+                        match runtime.block_on(Advisor::execute_ai(
+                            manifest,
+                            &self.diagram_source,
+                            &prompt,
+                        )) {
+                            Ok((explanation, new_diagram)) => {
+                                self.status_message = format!("&ai completed: {}", explanation);
+                                if let Some(d) = new_diagram {
+                                    self.diagram_source = d;
+                                    self.recalculate_diagram();
+                                }
+                            }
+                            Err(e) => {
+                                self.status_message = format!("&ai error: {}", e);
+                            }
+                        }
+                    }
+                } else {
+                    self.status_message = "No project bound! Run `&set [PATH]` first.".to_string();
+                }
+            }
+            Command::Add { kind, name } => {
+                self.add_node(kind, &name);
+            }
+            Command::Connect { from, to, label } => {
+                self.connect_nodes(&from, &to, label.as_deref());
+            }
+            Command::Test { node_id, input } => {
+                let target_node = node_id.or_else(|| self.active_node_id.clone());
+                if let Some(nid) = target_node {
+                    self.execute_node_test(&nid, input.as_deref().unwrap_or(""));
+                } else {
+                    self.status_message = "No node selected or specified for testing.".to_string();
+                }
+            }
+            Command::Help => {
+                self.report_content = Some(
+                    r#"=== merm Interactive Command Protocol ===
+Commands:
+  &set [PATH]                - Bind current Mermaid diagram to a Rust project
+  &check                     - Test compatibility between project and Mermaid (AST + build + LLM)
+  &advice <PROMPT>           - Request architecture advice from LLM (read-only)
+  &ok                        - Apply recommendations from &advice with rollback protection
+  &ai <PROMPT>               - Autonomous multi-file generation/refactoring with verification
+  :add <class|struct|enum> <Name> - Add new node to diagram & scaffold Rust file
+  :connect <From> <To> [lbl] - Connect two diagram nodes with arrow
+  :test [Node] [Input]       - Execute node test harness with input/output capture
+  :help                      - Show this command reference
+
+Keybindings (NORMAL mode):
+  : / &   - Open Command bar
+  t       - Test selected node (opens Input/Output drawer)
+  T       - Cycle theme
+  a / o   - Add new class / struct
+  c       - Connect nodes
+  e       - Open bound Rust file in $EDITOR
+  h,j,k,l - Pan diagram
+  +, -    - Zoom in / out
+  Tab     - Pivot direction (TD -> LR -> BT -> RL)
+  n / N   - Select next / previous node
+  q / Esc - Quit / close modal
+"#
+                    .to_string(),
+                );
+                self.modal.mode = UiMode::Report;
+            }
+            Command::Custom(s) => {
+                self.status_message = format!("Unknown command: {}", s);
+            }
+        }
+    }
+
+    pub fn add_node(&mut self, kind: NodeKind, name: &str) {
+        self.diagram_source = Scaffolder::add_node_to_diagram(&self.diagram_source, &kind, name);
+        self.recalculate_diagram();
+
+        if let Some(ref mut manifest) = self.manifest {
+            match Scaffolder::scaffold_rust_node(manifest, &kind, name) {
+                Ok(rel_path) => {
+                    self.status_message =
+                        format!("Added node '{}' and scaffolded '{}'", name, rel_path);
+                }
+                Err(e) => {
+                    self.status_message = format!(
+                        "Added node '{}' to diagram (scaffolding error: {})",
+                        name, e
+                    );
+                }
+            }
+        } else {
+            self.status_message = format!("Added node '{}' to diagram", name);
+        }
+    }
+
+    pub fn connect_nodes(&mut self, from: &str, to: &str, label: Option<&str>) {
+        self.diagram_source =
+            Scaffolder::connect_nodes_in_diagram(&self.diagram_source, from, to, label);
+        self.recalculate_diagram();
+        self.status_message = format!("Connected {} --> {}", from, to);
+    }
+
+    pub fn execute_node_test(&mut self, node_id: &str, input: &str) {
+        if let Some(ref manifest) = self.manifest {
+            let (file_path, entrypoint) = if let Some(b) = manifest.get_binding(node_id) {
+                (b.file.as_str(), b.entrypoint.as_deref())
+            } else {
+                ("src/lib.rs", Some("run"))
+            };
+
+            self.status_message = format!("Executing node '{}' with input '{}'...", node_id, input);
+
+            match NodeRunner::execute_node(
+                &manifest.project_root,
+                node_id,
+                file_path,
+                entrypoint,
+                input,
+            ) {
+                Ok(res) => {
+                    let status = if res.success { "SUCCESS" } else { "FAILED" };
+                    self.status_message = format!(
+                        "Node '{}' [{}] ({}ms): {}",
+                        node_id, status, res.duration_ms, res.output_payload
+                    );
+                    self.report_content = Some(format!(
+                        "=== Node Execution Result: {} ===\nStatus: {} (Exit code: {:?})\nDuration: {}ms\n\n[Output Payload]:\n{}\n\n[Stdout]:\n{}\n\n[Stderr]:\n{}",
+                        node_id,
+                        status,
+                        res.exit_code,
+                        res.duration_ms,
+                        res.output_payload,
+                        res.stdout,
+                        res.stderr
+                    ));
+                    self.last_execution_result = Some(res);
+                }
+                Err(e) => {
+                    self.status_message = format!("Execution failed for node '{}': {}", node_id, e);
+                }
+            }
+        } else {
+            self.status_message =
+                "No project bound! Run `&set [PATH]` before testing nodes.".to_string();
+        }
+    }
+
+    pub fn open_node_file(&mut self, node_id: &str) {
+        if let Some(ref manifest) = self.manifest {
+            if let Some(binding) = manifest.get_binding(node_id) {
+                let full_path = manifest.project_root.join(&binding.file);
+                let editor = env::var("EDITOR").unwrap_or_else(|_| "nvim".to_string());
+                log::info!("Opening {} in {}", full_path.display(), editor);
+                let _ = StdCommand::new(&editor).arg(&full_path).spawn();
+                self.status_message = format!("Opened {} in {}", binding.file, editor);
+                return;
+            }
+        }
+        self.status_message = format!("No file binding found for node '{}'", node_id);
+    }
+
     pub fn handle_ipc_command(&mut self, command: EditorCommand) {
         match command {
             EditorCommand::CursorMoved(params) => {
                 log::debug!("Editor cursor moved: {:?}", params);
                 if let Some(sym) = params.symbol {
-                    // Match node by ID or label
                     if let Some(ref diag) = self.current_diagram {
                         if let Some(node) =
                             diag.nodes.iter().find(|n| n.id == sym || n.label == sym)
@@ -108,9 +445,7 @@ impl AppState {
                     params.target_file, params.target_line
                 );
             }
-            EditorCommand::Ping => {
-                // Handled in server
-            }
+            EditorCommand::Ping => {}
             EditorCommand::Custom { method, .. } => {
                 log::debug!("Unhandled custom IPC method: {}", method);
             }
@@ -166,6 +501,7 @@ impl AppState {
                 });
                 if let Some((next_id, next_label)) = next_info {
                     self.select_node(Some(&next_id));
+                    self.modal.active_test_node_id = Some(next_id.clone());
                     self.status_message = format!("Selected: {}", next_label);
                 }
             }
@@ -192,8 +528,23 @@ impl AppState {
                 });
                 if let Some((prev_id, prev_label)) = prev_info {
                     self.select_node(Some(&prev_id));
+                    self.modal.active_test_node_id = Some(prev_id.clone());
                     self.status_message = format!("Selected: {}", prev_label);
                 }
+            }
+            UiAction::ExecuteCommand(cmd_str) => {
+                self.execute_command_str(&cmd_str);
+            }
+            UiAction::ExecuteNodeTest { node_id, input } => {
+                self.execute_node_test(&node_id, &input);
+            }
+            UiAction::OpenEditor(_) => {
+                if let Some(ref nid) = self.active_node_id.clone() {
+                    self.open_node_file(nid);
+                }
+            }
+            UiAction::Reload => {
+                self.recalculate_diagram();
             }
             UiAction::Quit => {
                 self.is_running = false;
@@ -218,6 +569,7 @@ impl AppState {
             diag.regenerate_svg(&self.theme.palette());
         }
         self.active_node_id = node_id.map(|s| s.to_string());
+        self.modal.active_test_node_id = node_id.map(|s| s.to_string());
     }
 
     pub fn render_current_frame(&mut self) -> Option<merm_render::RenderResult> {
@@ -230,15 +582,45 @@ impl AppState {
     }
 
     pub fn hud_status(&self) -> String {
+        // Mode-specific status line
+        match self.modal.mode {
+            UiMode::Command => {
+                return format!("{}█", self.modal.command_buffer);
+            }
+            UiMode::NodeTest => {
+                let node = self
+                    .modal
+                    .active_test_node_id
+                    .as_deref()
+                    .unwrap_or("Unknown");
+                return format!(
+                    "[TEST NODE: {}] Input: {}█ (Press Enter to execute, Esc to exit)",
+                    node, self.modal.test_input_buffer
+                );
+            }
+            UiMode::Report => {
+                return "[REPORT VIEW] Press Esc or q to return to diagram".to_string();
+            }
+            _ => {}
+        }
+
         let backend_str = match self.render_engine.active_backend() {
             BackendType::HardwareWgpu => "WGPU 120FPS",
             BackendType::SoftwareFallback => "CPU (softbuffer) 60FPS",
         };
+
         let mode_str = match self.modal.mode {
             UiMode::Normal => "NORMAL",
             UiMode::Pan => "PAN",
             UiMode::Search => "SEARCH",
             UiMode::Jump => "JUMP",
+            _ => "NORMAL",
+        };
+
+        let project_str = if let Some(ref m) = self.manifest {
+            format!(" [Project: {}]", m.project_name)
+        } else {
+            String::new()
         };
 
         let sel_str = if let Some(ref sel_id) = self.active_node_id {
@@ -251,14 +633,14 @@ impl AppState {
                     {
                         let type_kind = node.stereotype.as_deref().unwrap_or("CLASS");
                         format!(
-                            " [{}: {} ({} vars, {} funcs)]",
+                            " [{}: {} ({} vars, {} funcs, exec: 't')]",
                             type_kind.to_uppercase(),
                             node.id,
                             node.attributes.len(),
                             node.methods.len()
                         )
                     } else {
-                        format!(" [NODE: {}]", node.label)
+                        format!(" [NODE: {} (exec: 't')]", node.label)
                     }
                 } else {
                     format!(" [{}]", sel_id)
@@ -271,8 +653,9 @@ impl AppState {
         };
 
         format!(
-            "[MODE: {}] [{}] [{}] [Zoom: {:.1}x]{} | {}",
+            "[MODE: {}]{} [{}] [{}] [Zoom: {:.1}x]{} | {}",
             mode_str,
+            project_str,
             self.theme.palette().name,
             backend_str,
             self.transform.scale,

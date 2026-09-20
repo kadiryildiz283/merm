@@ -5,10 +5,20 @@ use merm_ui::{AppState, ModalController, UiAction};
 #[test]
 fn test_modal_controller_keybindings() {
     let mut ctrl = ModalController::default();
-    assert_eq!(ctrl.handle_key('h'), UiAction::Pan { dx: 30.0, dy: 0.0 });
-    assert_eq!(ctrl.handle_key('+'), UiAction::Zoom { factor: 1.15 });
-    assert_eq!(ctrl.handle_key('p'), UiAction::PivotDirection);
-    assert_eq!(ctrl.handle_key('q'), UiAction::Quit);
+    assert_eq!(
+        ctrl.handle_key('h', false),
+        UiAction::Pan { dx: 30.0, dy: 0.0 }
+    );
+    assert_eq!(ctrl.handle_key('+', false), UiAction::Zoom { factor: 1.15 });
+    assert_eq!(ctrl.handle_key('p', false), UiAction::PivotDirection);
+    assert_eq!(ctrl.handle_key('q', false), UiAction::Quit);
+
+    // Command mode trigger
+    assert_eq!(
+        ctrl.handle_key(':', false),
+        UiAction::SetMode(merm_ui::UiMode::Command)
+    );
+    assert_eq!(ctrl.command_buffer, ":");
 }
 
 #[test]
@@ -45,4 +55,31 @@ fn test_app_state_direction_pivoting() {
     app.handle_key_action(UiAction::PivotDirection);
     assert_eq!(app.active_direction, LayoutDirection::LR);
     assert!(app.diagram_source.contains("flowchart LR"));
+}
+
+#[test]
+fn test_app_state_command_dispatch() {
+    let source = "classDiagram\n    class User\n".to_string();
+    let mut app = AppState::new(source, false);
+
+    // Help command
+    app.execute_command_str(":help");
+    assert_eq!(app.modal.mode, merm_ui::UiMode::Report);
+    assert!(app
+        .report_content
+        .as_ref()
+        .unwrap()
+        .contains("Interactive Command Protocol"));
+
+    // Add node command
+    app.manifest = None;
+    app.execute_command_str(":add class BillingService");
+    assert!(app.diagram_source.contains("class BillingService"));
+    assert!(app.status_message.contains("Added node 'BillingService'"));
+
+    // Connect command
+    app.execute_command_str(":connect User BillingService pays");
+    assert!(app
+        .diagram_source
+        .contains("User --> BillingService : pays"));
 }

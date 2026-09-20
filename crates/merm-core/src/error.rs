@@ -18,4 +18,10 @@ pub enum CoreError {
 
     #[error("Unsupported diagram type: {0}")]
     UnsupportedType(String),
+
+    #[error("Operation failed: {0}")]
+    LayoutFailed(String),
+
+    #[error("Project binding error: {0}")]
+    BindingError(String),
 }
