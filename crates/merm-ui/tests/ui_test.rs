@@ -140,3 +140,25 @@ fn test_app_state_worker_async_result_handling() {
         .unwrap()
         .contains("=== Node Execution Result: WorkerNode ==="));
 }
+
+#[test]
+fn test_overlay_svg_validity_and_rasterization() {
+    let source = "classDiagram\n    class User\n".to_string();
+    let app = AppState::new(source, false);
+    let overlay_svg = merm_ui::MermAppWindow::build_overlay_svg(&app, 1280, 720).unwrap();
+
+    // Verify raw unescaped '&' is eliminated
+    assert!(!overlay_svg.contains("<text>&check</text>"));
+    assert!(!overlay_svg.contains("<text>&ai</text>"));
+    assert!(overlay_svg.contains("&amp;check"));
+
+    // Verify SVG parses and rasterizes with zero errors!
+    let mut buffer = vec![0u32; 1280 * 720];
+    let rasterizer = merm_render::SvgRasterizer::new();
+    let res = rasterizer.rasterize_overlay(&overlay_svg, 1280, 720, &mut buffer);
+    assert!(
+        res.is_ok(),
+        "Overlay SVG must parse and rasterize cleanly: {:?}",
+        res.err()
+    );
+}

@@ -180,7 +180,7 @@ impl MermAppWindow {
         self.last_frame = Instant::now();
     }
 
-    fn build_overlay_svg(app_state: &AppState, width: u32, height: u32) -> Option<String> {
+    pub fn build_overlay_svg(app_state: &AppState, width: u32, height: u32) -> Option<String> {
         let palette = app_state.theme.palette();
         let mut svg = String::new();
         svg.push_str(&format!(
@@ -519,7 +519,7 @@ impl MermAppWindow {
                                 .map(|l| format!(" : {}", l))
                                 .unwrap_or_default();
                             svg.push_str(&format!(
-                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11">   --> {}{}</text>"##,
+                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11">   --&gt; {}{}</text>"##,
                                 modal_x + 24.0, cur_y, palette.text_sub, escape_xml(&e.to), escape_xml(&lbl)
                             ));
                             cur_y += 16.0;
@@ -531,7 +531,7 @@ impl MermAppWindow {
                                 .map(|l| format!(" : {}", l))
                                 .unwrap_or_default();
                             svg.push_str(&format!(
-                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11">   <-- {}{}</text>"##,
+                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11">   &lt;-- {}{}</text>"##,
                                 modal_x + 24.0, cur_y, palette.text_sub, escape_xml(&e.from), escape_xml(&lbl)
                             ));
                             cur_y += 16.0;
@@ -607,7 +607,7 @@ impl MermAppWindow {
                     ));
                     svg.push_str(&format!(
                         r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" font-weight="bold" text-anchor="middle">{}</text>"##,
-                        cur_px + p_w / 2.0, input_y + 18.0, color, label
+                        cur_px + p_w / 2.0, input_y + 18.0, color, escape_xml(label)
                     ));
                     cur_px += p_w + 6.0;
                 }
