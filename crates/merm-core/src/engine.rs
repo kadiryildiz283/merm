@@ -377,8 +377,8 @@ impl RenderedDiagram {
                         };
 
                         svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12"><tspan fill="{}" font-weight="bold">{} </tspan>{}{}<tspan fill="{}">{}</tspan>{}</text>"##,
-                            node.x + 14.0, cur_y, vis_color, attr.visibility, "", type_part, var_color, escape_xml(&attr.name), comm_part
+                            r##"<text x="{}" y="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12"><tspan fill="{}" font-weight="bold">{} </tspan>{}<tspan fill="{}">{}</tspan>{}</text>"##,
+                            node.x + 14.0, cur_y, vis_color, attr.visibility, type_part, var_color, escape_xml(&attr.name), comm_part
                         ));
 
                         cur_y += 22.0;

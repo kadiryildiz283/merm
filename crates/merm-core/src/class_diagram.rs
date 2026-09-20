@@ -198,6 +198,28 @@ impl ClassDiagramParser {
                 continue;
             }
 
+            // Standalone stereotype: <<interface>> Shape
+            if trimmed.starts_with("<<") && trimmed.contains(">>") {
+                if let Some(end_idx) = trimmed.find(">>") {
+                    let stereo = trimmed[2..end_idx].trim().to_string();
+                    let target_class = trimmed[end_idx + 2..].trim();
+                    if !target_class.is_empty() {
+                        let doc = pending_doc_comment.take();
+                        classes
+                            .entry(target_class.to_string())
+                            .and_modify(|c| c.stereotype = Some(stereo.clone()))
+                            .or_insert_with(|| ClassDef {
+                                id: target_class.to_string(),
+                                stereotype: Some(stereo),
+                                doc_comment: doc,
+                                attributes: Vec::new(),
+                                methods: Vec::new(),
+                            });
+                        continue;
+                    }
+                }
+            }
+
             // Standalone class declaration: class Name
             if let Some(stripped) = trimmed.strip_prefix("class ") {
                 let name = stripped.trim();
@@ -238,6 +260,37 @@ impl ClassDiagramParser {
                 });
                 relations.push(rel);
                 continue;
+            }
+
+            // Colon-style member definition: ClassName : +type name // comment
+            if let Some((target_class, member_text)) = trimmed.split_once(':') {
+                let class_id = target_class.trim().to_string();
+                let member_s = member_text.trim();
+                if !class_id.is_empty()
+                    && !member_s.is_empty()
+                    && !class_id.contains('<')
+                    && !class_id.contains('>')
+                    && !class_id.contains('-')
+                    && !class_id.contains('*')
+                    && !class_id.contains('o')
+                    && !class_id.contains('.')
+                {
+                    let member = parse_member(member_s);
+                    let doc = pending_doc_comment.take();
+                    let entry = classes.entry(class_id.clone()).or_insert_with(|| ClassDef {
+                        id: class_id,
+                        stereotype: None,
+                        doc_comment: doc,
+                        attributes: Vec::new(),
+                        methods: Vec::new(),
+                    });
+                    if member.is_method {
+                        entry.methods.push(member);
+                    } else {
+                        entry.attributes.push(member);
+                    }
+                    continue;
+                }
             }
         }
 

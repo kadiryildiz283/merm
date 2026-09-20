@@ -177,18 +177,41 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Interactive fallback sample if run without input in terminal
                 r#"classDiagram
     direction LR
-    class BankAccount {
-        +String owner
-        -BigDecimal balance
-        +deposit(amount) bool
-        +withdraw(amount) bool
+
+    %% High-throughput payment processing engine
+    class PaymentService {
+        <<service>>
+        -ApiKey apiKey // Encrypted API bearer token
+        -SecretKey secretKey // HMAC-SHA256 signature key
+        #u32 retryCount // Exponential backoff retries
+        +bool isLiveMode // Production environment flag
+        +processPayment(Order order) PaymentResult // Authorizes and captures funds
+        +refund(String transactionId, f64 amount) bool // Partial or full refund
+        #validateToken(Token token) bool
     }
-    class CheckingAccount {
-        +BigDecimal overdraftLimit
-        +processCheck()
+
+    %% Core customer profile and ledger account
+    class CustomerAccount {
+        <<entity>>
+        +String customerId // Unique UUID v4
+        +String emailAddress // Primary billing contact
+        -f64 accountBalance // Available liquid balance
+        #bool isVerified // KYC verification status
+        +depositFunds(f64 amount) bool // Credits user account
+        +withdrawFunds(f64 amount) bool // Debits user account
     }
-    BankAccount <|-- CheckingAccount : inherits
-    BankAccount *-- Transaction : contains
+
+    %% Immutable settlement transaction record
+    class TransactionRecord {
+        <<struct>>
+        +String transactionId // Monotonic sequence ID
+        +f64 settledAmount // Settled currency value
+        +String statusCode // SUCCESS, PENDING, FAILED
+        +recordAuditLog() void // Emits audit log to Kafka
+    }
+
+    PaymentService ..> CustomerAccount : manages
+    CustomerAccount *-- TransactionRecord : holds
 "#
                 .to_string()
             } else {

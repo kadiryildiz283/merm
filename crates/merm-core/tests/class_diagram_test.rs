@@ -124,3 +124,32 @@ classDiagram
         Some("Executes external payment")
     );
 }
+
+#[test]
+fn test_colon_style_and_standalone_stereotypes() {
+    let source = r#"
+classDiagram
+    <<service>> OrderService
+    OrderService : +int orderId // Sequential ID
+    OrderService : -f64 totalAmount // Final price
+    OrderService : +calculateDiscount(f64 rate) f64 // Computes discount
+    OrderService : #verifyInventory() bool
+"#;
+
+    let engine = LayoutEngine::default();
+    let rendered = engine
+        .render_with_watchdog(source)
+        .expect("Must render colon-style members");
+
+    assert_eq!(rendered.nodes.len(), 1);
+    let node = &rendered.nodes[0];
+    assert_eq!(node.id, "OrderService");
+    assert_eq!(node.stereotype.as_deref(), Some("service"));
+    assert_eq!(node.attributes.len(), 2);
+    assert_eq!(node.methods.len(), 2);
+    assert_eq!(node.attributes[0].name, "orderId");
+    assert_eq!(node.attributes[0].type_name.as_deref(), Some("int"));
+    assert_eq!(node.attributes[0].comment.as_deref(), Some("Sequential ID"));
+    assert_eq!(node.methods[0].name, "calculateDiscount(f64 rate)");
+    assert_eq!(node.methods[0].type_name.as_deref(), Some("f64"));
+}
