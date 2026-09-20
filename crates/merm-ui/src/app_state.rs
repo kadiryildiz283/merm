@@ -135,26 +135,37 @@ impl AppState {
             }
             UiAction::CycleTheme => {
                 self.theme = self.theme.next();
-                self.recalculate_diagram();
+                if let Some(ref mut diag) = self.current_diagram {
+                    diag.regenerate_svg(&self.theme.palette());
+                } else {
+                    self.recalculate_diagram();
+                }
                 self.status_message = format!("Theme: {}", self.theme.palette().name);
             }
             UiAction::SelectNextNode => {
-                if let Some(ref diag) = self.current_diagram {
-                    if !diag.nodes.is_empty() {
+                let next_info = self.current_diagram.as_ref().and_then(|diag| {
+                    if diag.nodes.is_empty() {
+                        None
+                    } else {
                         let cur_idx = self
                             .active_node_id
                             .as_ref()
                             .and_then(|id| diag.nodes.iter().position(|n| &n.id == id))
                             .unwrap_or(0);
                         let next_idx = (cur_idx + 1) % diag.nodes.len();
-                        self.active_node_id = Some(diag.nodes[next_idx].id.clone());
-                        self.status_message = format!("Node: {}", diag.nodes[next_idx].label);
+                        Some((diag.nodes[next_idx].id.clone(), diag.nodes[next_idx].label.clone()))
                     }
+                });
+                if let Some((next_id, next_label)) = next_info {
+                    self.select_node(Some(&next_id));
+                    self.status_message = format!("Selected: {}", next_label);
                 }
             }
             UiAction::SelectPrevNode => {
-                if let Some(ref diag) = self.current_diagram {
-                    if !diag.nodes.is_empty() {
+                let prev_info = self.current_diagram.as_ref().and_then(|diag| {
+                    if diag.nodes.is_empty() {
+                        None
+                    } else {
                         let cur_idx = self
                             .active_node_id
                             .as_ref()
@@ -165,9 +176,12 @@ impl AppState {
                         } else {
                             cur_idx - 1
                         };
-                        self.active_node_id = Some(diag.nodes[prev_idx].id.clone());
-                        self.status_message = format!("Node: {}", diag.nodes[prev_idx].label);
+                        Some((diag.nodes[prev_idx].id.clone(), diag.nodes[prev_idx].label.clone()))
                     }
+                });
+                if let Some((prev_id, prev_label)) = prev_info {
+                    self.select_node(Some(&prev_id));
+                    self.status_message = format!("Selected: {}", prev_label);
                 }
             }
             UiAction::Quit => {
@@ -175,6 +189,24 @@ impl AppState {
             }
             UiAction::SetMode(_) | UiAction::None => {}
         }
+    }
+
+    pub fn move_node(&mut self, node_idx: usize, new_x: f32, new_y: f32) {
+        if let Some(ref mut diag) = self.current_diagram {
+            if node_idx < diag.nodes.len() {
+                diag.nodes[node_idx].x = new_x;
+                diag.nodes[node_idx].y = new_y;
+                diag.regenerate_svg(&self.theme.palette());
+            }
+        }
+    }
+
+    pub fn select_node(&mut self, node_id: Option<&str>) {
+        if let Some(ref mut diag) = self.current_diagram {
+            diag.selected_node_id = node_id.map(|s| s.to_string());
+            diag.regenerate_svg(&self.theme.palette());
+        }
+        self.active_node_id = node_id.map(|s| s.to_string());
     }
 
     pub fn render_current_frame(&mut self) -> Option<merm_render::RenderResult> {
@@ -198,9 +230,27 @@ impl AppState {
             UiMode::Jump => "JUMP",
         };
 
+        let sel_str = if let Some(ref sel_id) = self.active_node_id {
+            if let Some(ref diag) = self.current_diagram {
+                if let Some(node) = diag.nodes.iter().find(|n| &n.id == sel_id) {
+                    if !node.attributes.is_empty() || !node.methods.is_empty() {
+                        format!(" [CLASS: {} ({} attrs, {} methods)]", node.id, node.attributes.len(), node.methods.len())
+                    } else {
+                        format!(" [NODE: {}]", node.label)
+                    }
+                } else {
+                    format!(" [{}]", sel_id)
+                }
+            } else {
+                format!(" [{}]", sel_id)
+            }
+        } else {
+            String::new()
+        };
+
         format!(
-            "[MODE: {}] [{}] [{}] [Zoom: {:.1}x] | {}",
-            mode_str, self.theme.palette().name, backend_str, self.transform.scale, self.status_message
+            "[MODE: {}] [{}] [{}] [Zoom: {:.1}x]{} | {}",
+            mode_str, self.theme.palette().name, backend_str, self.transform.scale, sel_str, self.status_message
         )
     }
 }

@@ -29,7 +29,8 @@ classDiagram
     assert!(rendered.svg.contains("BankAccount"));
     assert!(rendered.svg.contains("CheckingAccount"));
     assert!(rendered.svg.contains("Transaction"));
-    assert!(rendered.svg.contains("deposit(amount) bool"));
+    assert!(rendered.svg.contains("deposit(amount)"));
+    assert!(rendered.svg.contains("bool"));
     assert!(rendered.svg.contains("overdraftLimit"));
 
     // Check UML markers

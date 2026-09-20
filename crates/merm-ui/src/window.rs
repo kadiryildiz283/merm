@@ -29,6 +29,9 @@ pub struct MermAppWindow {
     mouse_dragging: bool,
     last_cursor_pos: Option<(f64, f64)>,
     initial_fit_done: bool,
+    dragging_node_idx: Option<usize>,
+    drag_node_offset: (f32, f32),
+    current_surface_size: (u32, u32),
 }
 
 impl MermAppWindow {
@@ -44,12 +47,15 @@ impl MermAppWindow {
             mouse_dragging: false,
             last_cursor_pos: None,
             initial_fit_done: false,
+            dragging_node_idx: None,
+            drag_node_offset: (0.0, 0.0),
+            current_surface_size: (0, 0),
         }
     }
 
     pub fn run(self) -> Result<(), Box<dyn std::error::Error>> {
         let event_loop = EventLoop::new()?;
-        event_loop.set_control_flow(ControlFlow::Poll);
+        event_loop.set_control_flow(ControlFlow::wait_duration(std::time::Duration::from_millis(50)));
         let mut app = self;
         event_loop.run_app(&mut app)?;
         Ok(())
@@ -70,12 +76,15 @@ impl MermAppWindow {
         let width = size.width.max(1);
         let height = size.height.max(1);
 
-        surface
-            .resize(
-                std::num::NonZeroU32::new(width).unwrap(),
-                std::num::NonZeroU32::new(height).unwrap(),
-            )
-            .expect("Failed to resize softbuffer surface");
+        if self.current_surface_size != (width, height) {
+            surface
+                .resize(
+                    std::num::NonZeroU32::new(width).unwrap(),
+                    std::num::NonZeroU32::new(height).unwrap(),
+                )
+                .expect("Failed to resize softbuffer surface");
+            self.current_surface_size = (width, height);
+        }
 
         let mut buffer = surface
             .buffer_mut()
@@ -119,14 +128,9 @@ impl MermAppWindow {
 
         // Draw HUD bar at the bottom: 28px height with current theme color
         if height > hud_height {
-            let start_y = height - hud_height;
-            for y in start_y..height {
-                for x in 0..width {
-                    let idx = (y * width + x) as usize;
-                    if idx < buffer.len() {
-                        buffer[idx] = hud_color;
-                    }
-                }
+            let start_idx = ((height - hud_height) * width) as usize;
+            if start_idx < buffer.len() {
+                buffer[start_idx..].fill(hud_color);
             }
         }
 
@@ -236,7 +240,15 @@ impl ApplicationHandler for MermAppWindow {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                if self.mouse_dragging {
+                if let Some(idx) = self.dragging_node_idx {
+                    let (world_x, world_y) = self.app_state.transform.screen_to_world(position.x as f32, position.y as f32);
+                    let new_x = world_x - self.drag_node_offset.0;
+                    let new_y = world_y - self.drag_node_offset.1;
+                    self.app_state.move_node(idx, new_x, new_y);
+                    if let Some(ref w) = self.window {
+                        w.request_redraw();
+                    }
+                } else if self.mouse_dragging {
                     if let Some((last_x, last_y)) = self.last_cursor_pos {
                         let dx = (position.x - last_x) as f32;
                         let dy = (position.y - last_y) as f32;
@@ -253,7 +265,58 @@ impl ApplicationHandler for MermAppWindow {
                 button: MouseButton::Left,
                 ..
             } => {
-                self.mouse_dragging = state == ElementState::Pressed;
+                if state == ElementState::Pressed {
+                    let (cx, cy) = self.last_cursor_pos.unwrap_or((640.0, 360.0));
+                    let (world_x, world_y) = self.app_state.transform.screen_to_world(cx as f32, cy as f32);
+
+                    let hit_idx = if let Some(ref diag) = self.app_state.current_diagram {
+                        diag.nodes.iter().position(|n| {
+                            world_x >= n.x && world_x <= n.x + n.width &&
+                            world_y >= n.y && world_y <= n.y + n.height
+                        })
+                    } else {
+                        None
+                    };
+
+                    if let Some(idx) = hit_idx {
+                        let (node_id, node_label, nx, ny, attr_count, meth_count, comment_preview) = {
+                            let n = &self.app_state.current_diagram.as_ref().unwrap().nodes[idx];
+                            let comm = n.attributes.iter().chain(n.methods.iter()).find_map(|m| m.comment.clone());
+                            (n.id.clone(), n.label.clone(), n.x, n.y, n.attributes.len(), n.methods.len(), comm)
+                        };
+                        self.dragging_node_idx = Some(idx);
+                        self.drag_node_offset = (world_x - nx, world_y - ny);
+                        self.mouse_dragging = false;
+
+                        self.app_state.select_node(Some(&node_id));
+                        if attr_count > 0 || meth_count > 0 {
+                            if let Some(comm) = comment_preview {
+                                self.app_state.status_message = format!("Class: {} ({} vars, {} methods) | // {}", node_id, attr_count, meth_count, comm);
+                            } else {
+                                self.app_state.status_message = format!("Class: {} ({} vars, {} methods) | Drag to move", node_id, attr_count, meth_count);
+                            }
+                        } else {
+                            self.app_state.status_message = format!("Selected: [{}] (drag with mouse)", node_label);
+                        }
+                        if let Some(ref w) = self.window {
+                            let title = format!("merm | {}", self.app_state.hud_status());
+                            w.set_title(&title);
+                            w.request_redraw();
+                        }
+                    } else {
+                        self.dragging_node_idx = None;
+                        self.mouse_dragging = true;
+                        self.app_state.select_node(None);
+                        if let Some(ref w) = self.window {
+                            let title = format!("merm | {}", self.app_state.hud_status());
+                            w.set_title(&title);
+                            w.request_redraw();
+                        }
+                    }
+                } else {
+                    self.dragging_node_idx = None;
+                    self.mouse_dragging = false;
+                }
             }
             _ => {}
         }

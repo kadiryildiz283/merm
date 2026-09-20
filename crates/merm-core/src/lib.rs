@@ -8,8 +8,8 @@ pub mod theme;
 pub mod xml_utils;
 
 pub use ast_rewriter::{AstRewriter, LayoutDirection};
-pub use class_diagram::{ClassDef, ClassDiagramParser, ClassMember, ClassRelation, RelationKind};
-pub use engine::{DiagramNode, LayoutEngine, RenderedDiagram};
+pub use class_diagram::{ClassDef, ClassDiagramParser, ClassRelation};
+pub use engine::{ClassMemberInfo, DiagramNode, FlowEdge, LayoutEngine, RelationKind, RenderedDiagram};
 pub use error::CoreError;
 pub use extractor::{DiagramBlock, DiagramExtractor, DiagramType};
 pub use quickjs_engine::QuickJsEngine;

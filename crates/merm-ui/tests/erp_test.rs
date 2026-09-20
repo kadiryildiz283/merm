@@ -10,6 +10,10 @@ fn test_rasterize_erp_mermaid() {
     let engine = LayoutEngine::default();
     let diagram = engine.render_with_watchdog(&extracted[0].source).expect("Must render diagram");
 
+    // Ensure edge label text with parentheses is not treated as phantom nodes
+    assert!(!diagram.nodes.iter().any(|n| n.id.contains("1 Kez")), "Phantom node '1 Kez' should not exist");
+    assert!(!diagram.nodes.iter().any(|n| n.id.contains("Red Alert")), "Phantom node 'Red Alert' should not exist");
+
     let rasterizer = SvgRasterizer::new();
     let mut transform = Transform2D::default();
     transform.fit_to_viewport(diagram.width, diagram.height, 1280.0, 720.0);

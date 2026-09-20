@@ -1,8 +1,10 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use crate::transform::Transform2D;
 
 pub struct SvgRasterizer {
     fontdb: Arc<resvg::usvg::fontdb::Database>,
+    cached_tree: Mutex<Option<(String, Arc<resvg::usvg::Tree>)>>,
+    cached_pixmap: Mutex<Option<resvg::tiny_skia::Pixmap>>,
 }
 
 impl Default for SvgRasterizer {
@@ -64,6 +66,8 @@ impl SvgRasterizer {
 
         Self {
             fontdb: Arc::new(fontdb),
+            cached_tree: Mutex::new(None),
+            cached_pixmap: Mutex::new(None),
         }
     }
 
@@ -80,22 +84,56 @@ impl SvgRasterizer {
             return Err("Invalid buffer dimensions".to_string());
         }
 
-        let opt = resvg::usvg::Options {
-            fontdb: self.fontdb.clone(),
-            ..Default::default()
+        let tree = {
+            let mut cache = self.cached_tree.lock().unwrap();
+            if let Some((ref cached_str, ref tree)) = *cache {
+                if cached_str == svg_data {
+                    tree.clone()
+                } else {
+                    let opt = resvg::usvg::Options {
+                        fontdb: self.fontdb.clone(),
+                        ..Default::default()
+                    };
+                    let new_tree = Arc::new(
+                        resvg::usvg::Tree::from_str(svg_data, &opt)
+                            .map_err(|e| format!("SVG parse error: {e}"))?,
+                    );
+                    *cache = Some((svg_data.to_string(), new_tree.clone()));
+                    new_tree
+                }
+            } else {
+                let opt = resvg::usvg::Options {
+                    fontdb: self.fontdb.clone(),
+                    ..Default::default()
+                };
+                let new_tree = Arc::new(
+                    resvg::usvg::Tree::from_str(svg_data, &opt)
+                        .map_err(|e| format!("SVG parse error: {e}"))?,
+                );
+                *cache = Some((svg_data.to_string(), new_tree.clone()));
+                new_tree
+            }
         };
-        let tree = resvg::usvg::Tree::from_str(svg_data, &opt)
-            .map_err(|e| format!("SVG parse error: {e}"))?;
-
-        let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)
-            .ok_or_else(|| "Failed to allocate tiny-skia pixmap".to_string())?;
 
         let (bg_r, bg_g, bg_b) = if let Some(c) = bg_color {
             (((c >> 16) & 0xFF) as u8, ((c >> 8) & 0xFF) as u8, (c & 0xFF) as u8)
         } else {
             (30, 30, 46)
         };
-        pixmap.fill(resvg::tiny_skia::Color::from_rgba8(bg_r, bg_g, bg_b, 255));
+
+        let mut pixmap_guard = self.cached_pixmap.lock().unwrap();
+        let mut pixmap = match pixmap_guard.take() {
+            Some(mut p) if p.width() == width && p.height() == height => {
+                p.fill(resvg::tiny_skia::Color::from_rgba8(bg_r, bg_g, bg_b, 255));
+                p
+            }
+            _ => {
+                let mut p = resvg::tiny_skia::Pixmap::new(width, height)
+                    .ok_or_else(|| "Failed to allocate tiny-skia pixmap".to_string())?;
+                p.fill(resvg::tiny_skia::Color::from_rgba8(bg_r, bg_g, bg_b, 255));
+                p
+            }
+        };
 
         let render_ts = resvg::tiny_skia::Transform::from_scale(transform.scale, transform.scale)
             .post_translate(transform.pan_x, transform.pan_y);
@@ -104,15 +142,12 @@ impl SvgRasterizer {
 
         let rgba = pixmap.data();
         let (chunks, _) = rgba.as_chunks::<4>();
-        for (i, chunk) in chunks.iter().enumerate() {
-            if i < dest_buffer.len() {
-                let r = chunk[0] as u32;
-                let g = chunk[1] as u32;
-                let b = chunk[2] as u32;
-                dest_buffer[i] = (r << 16) | (g << 8) | b;
-            }
+        let len = chunks.len().min(dest_buffer.len());
+        for (dst, chunk) in dest_buffer[..len].iter_mut().zip(&chunks[..len]) {
+            *dst = ((chunk[0] as u32) << 16) | ((chunk[1] as u32) << 8) | (chunk[2] as u32);
         }
 
+        *pixmap_guard = Some(pixmap);
         Ok(())
     }
 }

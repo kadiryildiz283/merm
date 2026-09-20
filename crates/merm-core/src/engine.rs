@@ -8,11 +8,49 @@ use crate::error::CoreError;
 use crate::theme::ColorPalette;
 use crate::xml_utils::{escape_xml, split_and_escape_lines};
 
-pub struct LayoutEngine {
-    timeout: Duration,
-    #[allow(dead_code)]
-    memory_limit_bytes: usize,
-    pub palette: ColorPalette,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RelationKind {
+    Standard,
+    Inheritance,
+    Realization,
+    Composition,
+    Aggregation,
+    Association,
+    Dependency,
+    Link,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClassMemberInfo {
+    pub visibility: char,
+    pub name: String,
+    pub type_name: Option<String>,
+    pub comment: Option<String>,
+    pub is_method: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DiagramNode {
+    pub id: String,
+    pub label: String,
+    pub stereotype: Option<String>,
+    pub lines: Vec<String>,
+    pub attributes: Vec<ClassMemberInfo>,
+    pub methods: Vec<ClassMemberInfo>,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct FlowEdge {
+    pub from: String,
+    pub to: String,
+    pub label: Option<String>,
+    pub dotted: bool,
+    pub thick: bool,
+    pub kind: RelationKind,
 }
 
 #[derive(Debug, Clone)]
@@ -21,33 +59,349 @@ pub struct RenderedDiagram {
     pub width: f32,
     pub height: f32,
     pub nodes: Vec<DiagramNode>,
+    pub edges: Vec<FlowEdge>,
+    pub is_class_diagram: bool,
+    pub direction: LayoutDirection,
+    pub selected_node_id: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct DiagramNode {
-    pub id: String,
-    pub label: String,
-    pub lines: Vec<String>,
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: f32,
+impl RenderedDiagram {
+    pub fn regenerate_svg(&mut self, palette: &ColorPalette) {
+        let is_horizontal = self.direction == LayoutDirection::LR || self.direction == LayoutDirection::RL;
+
+        let mut max_x = self.width;
+        let mut max_y = self.height;
+
+        for node in &self.nodes {
+            max_x = max_x.max(node.x + node.width + 80.0);
+            max_y = max_y.max(node.y + node.height + 80.0);
+        }
+        let total_width = max_x;
+        let total_height = max_y;
+
+        let mut svg = format!(
+            r##"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">"##,
+            total_width, total_height, total_width, total_height
+        );
+
+        // Marker definitions with theme semantic colors
+        svg.push_str(&format!(
+            r##"
+        <defs>
+            <marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+                <path d="M 0 1 L 10 5 L 0 9 z" fill="{}"/>
+            </marker>
+            <marker id="inheritance" viewBox="0 0 16 12" refX="15" refY="6" markerWidth="16" markerHeight="12" orient="auto">
+                <polygon points="0 0, 15 6, 0 12" fill="{}" stroke="{}" stroke-width="2"/>
+            </marker>
+            <marker id="realization" viewBox="0 0 16 12" refX="15" refY="6" markerWidth="16" markerHeight="12" orient="auto">
+                <polygon points="0 0, 15 6, 0 12" fill="{}" stroke="{}" stroke-width="2"/>
+            </marker>
+            <marker id="composition" viewBox="0 0 16 12" refX="16" refY="6" markerWidth="16" markerHeight="12" orient="auto">
+                <polygon points="0 6, 8 0, 16 6, 8 12" fill="{}" stroke="{}"/>
+            </marker>
+            <marker id="aggregation" viewBox="0 0 16 12" refX="16" refY="6" markerWidth="16" markerHeight="12" orient="auto">
+                <polygon points="0 6, 8 0, 16 6, 8 12" fill="{}" stroke="{}" stroke-width="2"/>
+            </marker>
+            <marker id="association" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto">
+                <polyline points="0 1, 10 5, 0 9" fill="none" stroke="{}" stroke-width="2"/>
+            </marker>
+            <marker id="dependency" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto">
+                <polyline points="0 1, 10 5, 0 9" fill="none" stroke="{}" stroke-width="2"/>
+            </marker>
+        </defs>
+        <rect width="100%" height="100%" fill="{}"/>
+        "##,
+            palette.edge_stroke,
+            palette.card_bg, palette.edge_stroke,
+            palette.card_bg, palette.public_vis,
+            palette.private_vis, palette.private_vis,
+            palette.card_bg, palette.protected_vis,
+            palette.border,
+            palette.package_vis,
+            palette.background
+        ));
+
+        // Draw edges
+        for edge in &self.edges {
+            let from_node = self.nodes.iter().find(|n| n.id == edge.from);
+            let to_node = self.nodes.iter().find(|n| n.id == edge.to);
+
+            if let (Some(f), Some(t)) = (from_node, to_node) {
+                let (sx, sy, ex, ey) = if is_horizontal {
+                    (f.x + f.width, f.y + f.height / 2.0, t.x, t.y + t.height / 2.0)
+                } else {
+                    (f.x + f.width / 2.0, f.y + f.height, t.x + t.width / 2.0, t.y)
+                };
+
+                let (stroke_color, marker_attr, dash_style, stroke_w) = match edge.kind {
+                    RelationKind::Inheritance => (&palette.edge_stroke, r#"marker-end="url(#inheritance)""#, "", "2"),
+                    RelationKind::Realization => (&palette.public_vis, r#"marker-end="url(#realization)""#, r#"stroke-dasharray="6,4" "#, "2"),
+                    RelationKind::Composition => (&palette.private_vis, r#"marker-end="url(#composition)""#, "", "2"),
+                    RelationKind::Aggregation => (&palette.protected_vis, r#"marker-end="url(#aggregation)""#, "", "2"),
+                    RelationKind::Association => (&palette.border, r#"marker-end="url(#association)""#, "", "2"),
+                    RelationKind::Dependency => (&palette.package_vis, r#"marker-end="url(#dependency)""#, r#"stroke-dasharray="4,4" "#, "2"),
+                    RelationKind::Link => (&palette.divider, "", "", "1.5"),
+                    RelationKind::Standard => {
+                        let dash = if edge.dotted { r#"stroke-dasharray="6,4" "# } else { "" };
+                        let w = if edge.thick { "3.5" } else { "2" };
+                        (&palette.edge_stroke, r#"marker-end="url(#flow-arrow)""#, dash, w)
+                    }
+                };
+
+                let (c1x, c1y, c2x, c2y) = if is_horizontal {
+                    if ex > sx {
+                        let mid_x = (sx + ex) / 2.0;
+                        (mid_x, sy, mid_x, ey)
+                    } else {
+                        let sweep_y = sy.max(ey) + 80.0;
+                        (sx, sweep_y, ex, sweep_y)
+                    }
+                } else if ey > sy {
+                    let mid_y = (sy + ey) / 2.0;
+                    (sx, mid_y, ex, mid_y)
+                } else {
+                    let sweep_x = sx.max(ex) + 80.0;
+                    (sweep_x, sy, sweep_x, ey)
+                };
+
+                let mid_x = (sx + ex) / 2.0;
+                let mid_y = (sy + ey) / 2.0;
+
+                svg.push_str(&format!(
+                    r##"<path d="M {} {} C {} {}, {} {}, {} {}" fill="none" stroke="{}" stroke-width="{}" {}{}/>"##,
+                    sx, sy, c1x, c1y, c2x, c2y, ex, ey, stroke_color, stroke_w, dash_style, marker_attr
+                ));
+
+                if let Some(ref lbl) = edge.label {
+                    let escaped_lbl = escape_xml(lbl);
+                    let badge_w = (escaped_lbl.len() as f32 * 7.5 + 16.0).max(40.0);
+                    let badge_h = 20.0f32;
+                    svg.push_str(&format!(
+                        r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1" opacity="0.95"/>
+                        <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
+                        mid_x - badge_w / 2.0,
+                        mid_y - badge_h / 2.0,
+                        badge_w,
+                        badge_h,
+                        palette.badge_bg,
+                        palette.border,
+                        mid_x,
+                        mid_y,
+                        palette.text_main,
+                        escaped_lbl
+                    ));
+                }
+            }
+        }
+
+        // Draw nodes
+        for node in &self.nodes {
+            let is_selected = self.selected_node_id.as_deref() == Some(&node.id);
+            let border_color = if is_selected { &palette.text_accent } else { &palette.border };
+            let border_width = if is_selected { "3" } else { "2" };
+
+            // Outer selection halo
+            if is_selected {
+                svg.push_str(&format!(
+                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="12" fill="none" stroke="{}" stroke-width="2.5" stroke-dasharray="5,4" opacity="0.9"/>"##,
+                    node.x - 5.0, node.y - 5.0, node.width + 10.0, node.height + 10.0, palette.text_accent
+                ));
+            }
+
+            let is_class = !node.attributes.is_empty() || !node.methods.is_empty() || node.stereotype.is_some() || self.is_class_diagram;
+
+            if is_class {
+                // Class Diagram Card
+                let header_h = 44.0f32;
+                svg.push_str(&format!(
+                    r##"<g id="node_{}" class="class-node">
+                    <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}" stroke="{}" stroke-width="{}"/>
+                    <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}"/>
+                    <line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1.5"/>"##,
+                    escape_xml(&node.id),
+                    node.x, node.y, node.width, node.height, palette.card_bg, border_color, border_width,
+                    node.x, node.y, node.width, header_h, palette.card_header,
+                    node.x, node.y + header_h, node.x + node.width, node.y + header_h, palette.border
+                ));
+
+                // Stereotype pill or label
+                if let Some(ref stereo) = node.stereotype {
+                    let esc_stereo = escape_xml(stereo);
+                    let badge_text = format!("«{}»", esc_stereo);
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
+                        node.x + node.width / 2.0, node.y + 14.0, palette.text_accent, badge_text
+                    ));
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
+                        node.x + node.width / 2.0, node.y + 30.0, palette.text_main, escape_xml(&node.id)
+                    ));
+                } else {
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
+                        node.x + node.width / 2.0, node.y + 22.0, palette.text_main, escape_xml(&node.id)
+                    ));
+                }
+
+                // Attributes with rich syntax colors
+                let mut cur_y = node.y + header_h + 16.0;
+                if node.attributes.is_empty() {
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-style="italic">  (no attributes)</text>"##,
+                        node.x + 16.0, cur_y, palette.text_muted
+                    ));
+                    cur_y += 20.0;
+                } else {
+                    for attr in &node.attributes {
+                        let vis_color = match attr.visibility {
+                            '+' => &palette.public_vis,
+                            '-' => &palette.private_vis,
+                            '#' => &palette.protected_vis,
+                            _ => &palette.package_vis,
+                        };
+                        svg.push_str(&format!(
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-weight="bold">{}</text>"##,
+                            node.x + 14.0, cur_y, vis_color, attr.visibility
+                        ));
+
+                        let mut text_x = node.x + 28.0;
+                        if let Some(ref t) = attr.type_name {
+                            let esc_t = escape_xml(t);
+                            svg.push_str(&format!(
+                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-weight="bold">{} </text>"##,
+                                text_x, cur_y, palette.border, esc_t
+                            ));
+                            text_x += (esc_t.len() as f32 * 7.5) + 6.0;
+                        }
+
+                        let esc_name = escape_xml(&attr.name);
+                        svg.push_str(&format!(
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12">{}</text>"##,
+                            text_x, cur_y, palette.text_main, esc_name
+                        ));
+                        text_x += (esc_name.len() as f32 * 7.5) + 8.0;
+
+                        if let Some(ref comm) = attr.comment {
+                            svg.push_str(&format!(
+                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" font-style="italic">// {}</text>"##,
+                                text_x, cur_y, palette.text_muted, escape_xml(comm)
+                            ));
+                        }
+
+                        cur_y += 20.0;
+                    }
+                }
+
+                // Divider line
+                svg.push_str(&format!(
+                    r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
+                    node.x, cur_y, node.x + node.width, cur_y, palette.divider
+                ));
+                cur_y += 16.0;
+
+                // Methods with rich syntax colors
+                if node.methods.is_empty() {
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-style="italic">  (no methods)</text>"##,
+                        node.x + 16.0, cur_y, palette.text_muted
+                    ));
+                } else {
+                    for meth in &node.methods {
+                        let vis_color = match meth.visibility {
+                            '+' => &palette.public_vis,
+                            '-' => &palette.private_vis,
+                            '#' => &palette.protected_vis,
+                            _ => &palette.package_vis,
+                        };
+                        svg.push_str(&format!(
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-weight="bold">{}</text>"##,
+                            node.x + 14.0, cur_y, vis_color, meth.visibility
+                        ));
+
+                        let mut text_x = node.x + 28.0;
+                        let esc_name = escape_xml(&meth.name);
+                        svg.push_str(&format!(
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12">{}</text>"##,
+                            text_x, cur_y, palette.text_main, esc_name
+                        ));
+                        text_x += (esc_name.len() as f32 * 7.5) + 6.0;
+
+                        if let Some(ref t) = meth.type_name {
+                            let esc_t = escape_xml(t);
+                            svg.push_str(&format!(
+                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-weight="bold">: {}</text>"##,
+                                text_x, cur_y, palette.border, esc_t
+                            ));
+                            text_x += (esc_t.len() as f32 * 7.5) + 12.0;
+                        }
+
+                        if let Some(ref comm) = meth.comment {
+                            svg.push_str(&format!(
+                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" font-style="italic">// {}</text>"##,
+                                text_x, cur_y, palette.text_muted, escape_xml(comm)
+                            ));
+                        }
+
+                        cur_y += 20.0;
+                    }
+                }
+
+                svg.push_str("</g>\n");
+            } else {
+                // Flowchart Node
+                svg.push_str(&format!(
+                    r##"<g id="node_{}" class="node">
+                    <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}" stroke="{}" stroke-width="{}"/>"##,
+                    escape_xml(&node.id),
+                    node.x, node.y, node.width, node.height, palette.card_bg, border_color, border_width
+                ));
+
+                let center_x = node.x + node.width / 2.0;
+                if node.lines.len() <= 1 {
+                    let text = node.lines.first().cloned().unwrap_or_else(|| escape_xml(&node.label));
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
+                        center_x, node.y + node.height / 2.0, palette.text_main, text
+                    ));
+                } else {
+                    let line_height = 18.0f32;
+                    let start_y = node.y + (node.height - (node.lines.len() as f32 * line_height)) / 2.0 + 10.0;
+                    for (idx, line) in node.lines.iter().enumerate() {
+                        let y_pos = start_y + (idx as f32 * line_height);
+                        let (weight, size, fill) = if idx == 0 {
+                            ("bold", "13", &palette.text_main)
+                        } else {
+                            ("normal", "11", &palette.text_sub)
+                        };
+                        svg.push_str(&format!(
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="{}" font-weight="{}" text-anchor="middle">{}</text>"##,
+                            center_x, y_pos, fill, size, weight, line
+                        ));
+                    }
+                }
+
+                svg.push_str("</g>\n");
+            }
+        }
+
+        svg.push_str("</svg>");
+        self.svg = svg;
+    }
 }
 
-#[derive(Debug, Clone)]
-struct FlowEdge {
-    from: String,
-    to: String,
-    label: Option<String>,
-    dotted: bool,
-    thick: bool,
+pub struct LayoutEngine {
+    timeout: Duration,
+    #[allow(dead_code)]
+    memory_limit_bytes: usize,
+    pub palette: ColorPalette,
 }
 
 impl Default for LayoutEngine {
     fn default() -> Self {
         Self {
             timeout: Duration::from_millis(2000),
-            memory_limit_bytes: 32 * 1024 * 1024, // 32 MB
+            memory_limit_bytes: 32 * 1024 * 1024,
             palette: ColorPalette::default(),
         }
     }
@@ -72,6 +426,41 @@ fn clean_label(raw: &str) -> Option<String> {
     }
 }
 
+fn sanitize_line_for_node_extraction(line: &str) -> String {
+    let is_edge_line = line.contains("-->")
+        || line.contains("-.->")
+        || line.contains(".->")
+        || line.contains("==>")
+        || line.contains("---");
+
+    if !is_edge_line {
+        return line.to_string();
+    }
+
+    let mut out = String::with_capacity(line.len());
+    let mut in_quotes = false;
+    let mut in_pipe = false;
+
+    for c in line.chars() {
+        if c == '"' {
+            in_quotes = !in_quotes;
+            out.push(' ');
+            continue;
+        }
+        if c == '|' {
+            in_pipe = !in_pipe;
+            out.push(' ');
+            continue;
+        }
+        if in_quotes || in_pipe {
+            out.push(' ');
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
 fn parse_edge(trimmed: &str) -> Option<FlowEdge> {
     // 1. Dotted arrow with label: A -. "label" .-> B or A -. label .-> B
     if let Some(p1) = trimmed.find("-.") {
@@ -86,6 +475,7 @@ fn parse_edge(trimmed: &str) -> Option<FlowEdge> {
                     label,
                     dotted: true,
                     thick: false,
+                    kind: RelationKind::Standard,
                 });
             }
         }
@@ -102,6 +492,7 @@ fn parse_edge(trimmed: &str) -> Option<FlowEdge> {
                 label: None,
                 dotted: true,
                 thick: false,
+                kind: RelationKind::Standard,
             });
         }
     }
@@ -119,6 +510,7 @@ fn parse_edge(trimmed: &str) -> Option<FlowEdge> {
                     label,
                     dotted: false,
                     thick: true,
+                    kind: RelationKind::Standard,
                 });
             }
         }
@@ -139,6 +531,7 @@ fn parse_edge(trimmed: &str) -> Option<FlowEdge> {
                         label,
                         dotted: false,
                         thick: true,
+                        kind: RelationKind::Standard,
                     });
                 }
             }
@@ -152,6 +545,7 @@ fn parse_edge(trimmed: &str) -> Option<FlowEdge> {
                     label: None,
                     dotted: false,
                     thick: true,
+                    kind: RelationKind::Standard,
                 });
             }
         }
@@ -170,6 +564,7 @@ fn parse_edge(trimmed: &str) -> Option<FlowEdge> {
                     label,
                     dotted: false,
                     thick: false,
+                    kind: RelationKind::Standard,
                 });
             }
         }
@@ -190,6 +585,7 @@ fn parse_edge(trimmed: &str) -> Option<FlowEdge> {
                         label,
                         dotted: false,
                         thick: false,
+                        kind: RelationKind::Standard,
                     });
                 }
             }
@@ -203,6 +599,7 @@ fn parse_edge(trimmed: &str) -> Option<FlowEdge> {
                     label: None,
                     dotted: false,
                     thick: false,
+                    kind: RelationKind::Standard,
                 });
             }
         }
@@ -219,6 +616,7 @@ fn parse_edge(trimmed: &str) -> Option<FlowEdge> {
                 label: None,
                 dotted: false,
                 thick: false,
+                kind: RelationKind::Standard,
             });
         }
     }
@@ -227,7 +625,9 @@ fn parse_edge(trimmed: &str) -> Option<FlowEdge> {
 }
 
 fn extract_nodes_from_line(line: &str, nodes: &mut Vec<DiagramNode>) {
-    let mut rem = line;
+    let sanitized = sanitize_line_for_node_extraction(line);
+    let mut rem = sanitized.as_str();
+
     while let Some(start) = rem.find(['[', '(', '{']) {
         let open_char = rem.as_bytes()[start] as char;
         let close_char = match open_char {
@@ -282,7 +682,10 @@ fn extract_nodes_from_line(line: &str, nodes: &mut Vec<DiagramNode>) {
                     nodes.push(DiagramNode {
                         id: node_id,
                         label: clean_lbl.to_string(),
+                        stereotype: None,
                         lines,
+                        attributes: Vec::new(),
+                        methods: Vec::new(),
                         x: 0.0,
                         y: 0.0,
                         width,
@@ -306,8 +709,6 @@ impl LayoutEngine {
         }
     }
 
-    /// Renders a diagram with strict timeout watchdog protection.
-    /// This prevents ReDoS or unbounded execution from freezing the process.
     pub fn render_with_watchdog(&self, source: &str) -> Result<RenderedDiagram, CoreError> {
         let (tx, rx) = channel();
         let source_owned = source.to_string();
@@ -387,7 +788,10 @@ impl LayoutEngine {
                     nodes.push(DiagramNode {
                         id: edge.from.clone(),
                         label: edge.from.clone(),
+                        stereotype: None,
                         lines: vec![esc],
+                        attributes: Vec::new(),
+                        methods: Vec::new(),
                         x: 0.0,
                         y: 0.0,
                         width: 180.0,
@@ -399,7 +803,10 @@ impl LayoutEngine {
                     nodes.push(DiagramNode {
                         id: edge.to.clone(),
                         label: edge.to.clone(),
+                        stereotype: None,
                         lines: vec![esc],
+                        attributes: Vec::new(),
+                        methods: Vec::new(),
                         x: 0.0,
                         y: 0.0,
                         width: 180.0,
@@ -420,6 +827,10 @@ impl LayoutEngine {
                 width: 800.0,
                 height: 600.0,
                 nodes,
+                edges: Vec::new(),
+                is_class_diagram: false,
+                direction: dir,
+                selected_node_id: None,
             });
         }
 
@@ -536,145 +947,17 @@ impl LayoutEngine {
             total_width = (cur_x - h_gap + margin_x).max(1000.0);
         }
 
-        let mut svg = format!(
-            r##"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">"##,
-            total_width, total_height, total_width, total_height
-        );
-
-        // Marker for arrow using theme
-        svg.push_str(&format!(
-            r##"
-        <defs>
-            <marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
-                <path d="M 0 1 L 10 5 L 0 9 z" fill="{}"/>
-            </marker>
-        </defs>
-        <rect width="100%" height="100%" fill="{}"/>
-        "##,
-            palette.edge_stroke, palette.background
-        ));
-
-        // Draw edges
-        for edge in &edges {
-            let from_node = nodes.iter().find(|n| n.id == edge.from);
-            let to_node = nodes.iter().find(|n| n.id == edge.to);
-
-            if let (Some(f), Some(t)) = (from_node, to_node) {
-                let (sx, sy, ex, ey) = if is_horizontal {
-                    (f.x + f.width, f.y + f.height / 2.0, t.x, t.y + t.height / 2.0)
-                } else {
-                    (f.x + f.width / 2.0, f.y + f.height, t.x + t.width / 2.0, t.y)
-                };
-
-                let dash = if edge.dotted {
-                    r#"stroke-dasharray="6,4" "#
-                } else {
-                    ""
-                };
-                let width = if edge.thick { "3.5" } else { "2" };
-
-                let (c1x, c1y, c2x, c2y) = if is_horizontal {
-                    if ex > sx {
-                        let mid_x = (sx + ex) / 2.0;
-                        (mid_x, sy, mid_x, ey)
-                    } else {
-                        let sweep_y = sy.max(ey) + 80.0;
-                        (sx, sweep_y, ex, sweep_y)
-                    }
-                } else if ey > sy {
-                    let mid_y = (sy + ey) / 2.0;
-                    (sx, mid_y, ex, mid_y)
-                } else {
-                    let sweep_x = sx.max(ex) + 80.0;
-                    (sweep_x, sy, sweep_x, ey)
-                };
-
-                let mid_x = (sx + ex) / 2.0;
-                let mid_y = (sy + ey) / 2.0;
-
-                svg.push_str(&format!(
-                    r##"<path d="M {} {} C {} {}, {} {}, {} {}" fill="none" stroke="{}" stroke-width="{}" {}marker-end="url(#flow-arrow)"/>"##,
-                    sx, sy, c1x, c1y, c2x, c2y, ex, ey, palette.edge_stroke, width, dash
-                ));
-
-                if let Some(ref lbl) = edge.label {
-                    let escaped_lbl = escape_xml(lbl);
-                    let badge_w = (escaped_lbl.len() as f32 * 7.5 + 16.0).max(40.0);
-                    let badge_h = 20.0f32;
-                    svg.push_str(&format!(
-                        r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1" opacity="0.95"/>
-                        <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
-                        mid_x - badge_w / 2.0,
-                        mid_y - badge_h / 2.0,
-                        badge_w,
-                        badge_h,
-                        palette.badge_bg,
-                        palette.border,
-                        mid_x,
-                        mid_y,
-                        palette.text_main,
-                        escaped_lbl
-                    ));
-                }
-            }
-        }
-
-        // Draw nodes
-        for node in &nodes {
-            svg.push_str(&format!(
-                r##"<g id="node_{}" class="node">
-                <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}" stroke="{}" stroke-width="2"/>"##,
-                escape_xml(&node.id),
-                node.x,
-                node.y,
-                node.width,
-                node.height,
-                palette.card_bg,
-                palette.border
-            ));
-
-            let center_x = node.x + node.width / 2.0;
-            if node.lines.len() <= 1 {
-                let text = node
-                    .lines
-                    .first()
-                    .cloned()
-                    .unwrap_or_else(|| escape_xml(&node.label));
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
-                    center_x,
-                    node.y + node.height / 2.0,
-                    palette.text_main,
-                    text
-                ));
-            } else {
-                let line_height = 18.0f32;
-                let start_y =
-                    node.y + (node.height - (node.lines.len() as f32 * line_height)) / 2.0 + 10.0;
-                for (idx, line) in node.lines.iter().enumerate() {
-                    let y_pos = start_y + (idx as f32 * line_height);
-                    let (weight, size, fill) = if idx == 0 {
-                        ("bold", "13", &palette.text_main)
-                    } else {
-                        ("normal", "11", &palette.text_sub)
-                    };
-                    svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="{}" font-weight="{}" text-anchor="middle">{}</text>"##,
-                        center_x, y_pos, fill, size, weight, line
-                    ));
-                }
-            }
-
-            svg.push_str("</g>\n");
-        }
-
-        svg.push_str("</svg>");
-
-        Ok(RenderedDiagram {
-            svg,
+        let mut diagram = RenderedDiagram {
+            svg: String::new(),
             width: total_width,
             height: total_height,
             nodes,
-        })
+            edges,
+            is_class_diagram: false,
+            direction: dir,
+            selected_node_id: None,
+        };
+        diagram.regenerate_svg(palette);
+        Ok(diagram)
     }
 }

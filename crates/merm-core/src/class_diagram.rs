@@ -1,34 +1,16 @@
 use std::collections::HashMap;
 use crate::ast_rewriter::LayoutDirection;
-use crate::engine::{DiagramNode, RenderedDiagram};
+use crate::engine::{ClassMemberInfo, DiagramNode, FlowEdge, RelationKind, RenderedDiagram};
 use crate::error::CoreError;
 use crate::theme::ColorPalette;
 use crate::xml_utils::escape_xml;
 
 #[derive(Debug, Clone)]
-pub struct ClassMember {
-    pub visibility: char, // '+', '-', '#', '~'
-    pub raw: String,
-    pub is_method: bool,
-}
-
-#[derive(Debug, Clone)]
 pub struct ClassDef {
     pub id: String,
     pub stereotype: Option<String>,
-    pub attributes: Vec<ClassMember>,
-    pub methods: Vec<ClassMember>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RelationKind {
-    Inheritance,    // <|-- or --|>
-    Realization,    // ..|> or <|..
-    Composition,    // *-- or --*
-    Aggregation,    // o-- or --o
-    Association,    // --> or <--
-    Dependency,     // ..> or <..
-    Link,           // --
+    pub attributes: Vec<ClassMemberInfo>,
+    pub methods: Vec<ClassMemberInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,6 +22,62 @@ pub struct ClassRelation {
 }
 
 pub struct ClassDiagramParser;
+
+fn parse_member(raw_line: &str) -> ClassMemberInfo {
+    let mut s = raw_line.trim();
+
+    // Extract comment if present (%% or //)
+    let mut comment = None;
+    if let Some(idx) = s.find("%%") {
+        comment = Some(s[idx + 2..].trim().to_string());
+        s = s[..idx].trim();
+    } else if let Some(idx) = s.find("//") {
+        comment = Some(s[idx + 2..].trim().to_string());
+        s = s[..idx].trim();
+    }
+
+    // Extract visibility (+, -, #, ~)
+    let mut vis = '+';
+    if s.starts_with('+') || s.starts_with('-') || s.starts_with('#') || s.starts_with('~') {
+        vis = s.chars().next().unwrap();
+        s = s[1..].trim();
+    }
+
+    let is_method = s.contains('(');
+
+    let (name, type_name) = if is_method {
+        if let Some(paren_close) = s.find(')') {
+            let sig = s[..=paren_close].trim();
+            let ret = s[paren_close + 1..].trim();
+            let ret_type = if ret.is_empty() {
+                None
+            } else {
+                Some(ret.trim_start_matches(':').trim().to_string())
+            };
+            (sig.to_string(), ret_type)
+        } else {
+            (s.to_string(), None)
+        }
+    } else if let Some((n, t)) = s.split_once(':') {
+        (n.trim().to_string(), Some(t.trim().to_string()))
+    } else {
+        let parts: Vec<&str> = s.split_whitespace().collect();
+        if parts.len() >= 2 {
+            // First is type, rest is variable name
+            (parts[1..].join(" "), Some(parts[0].to_string()))
+        } else {
+            (s.to_string(), None)
+        }
+    };
+
+    ClassMemberInfo {
+        visibility: vis,
+        name,
+        type_name,
+        comment,
+        is_method,
+    }
+}
 
 impl ClassDiagramParser {
     pub fn is_class_diagram(source: &str) -> bool {
@@ -93,12 +131,7 @@ impl ClassDiagramParser {
 
             // Inside class body: e.g. +String name, +deposit(amount) bool
             if let Some(ref class_id) = current_class_id {
-                let mut member_str = trimmed.to_string();
-                let mut vis = '+';
-                if member_str.starts_with('+') || member_str.starts_with('-') || member_str.starts_with('#') || member_str.starts_with('~') {
-                    vis = member_str.chars().next().unwrap();
-                    member_str = member_str[1..].trim().to_string();
-                }
+                let member_str = trimmed.to_string();
 
                 if member_str.starts_with("<<") && member_str.ends_with(">>") {
                     let stereo = member_str[2..member_str.len() - 2].trim().to_string();
@@ -108,15 +141,9 @@ impl ClassDiagramParser {
                     continue;
                 }
 
-                let is_method = member_str.contains('(');
-                let member = ClassMember {
-                    visibility: vis,
-                    raw: member_str,
-                    is_method,
-                };
-
+                let member = parse_member(&member_str);
                 if let Some(c) = classes.get_mut(class_id) {
-                    if is_method {
+                    if member.is_method {
                         c.methods.push(member);
                     } else {
                         c.attributes.push(member);
@@ -144,16 +171,12 @@ impl ClassDiagramParser {
             // Standalone class declaration: class Name
             if let Some(stripped) = trimmed.strip_prefix("class ") {
                 let name = stripped.trim();
-                if let Some(colon_idx) = name.find(":::") {
-                    let class_id = name[..colon_idx].trim().to_string();
-                    classes.entry(class_id.clone()).or_insert_with(|| ClassDef {
-                        id: class_id,
-                        stereotype: None,
-                        attributes: Vec::new(),
-                        methods: Vec::new(),
-                    });
+                let class_id = if let Some(colon_idx) = name.find(":::") {
+                    name[..colon_idx].trim().to_string()
                 } else {
-                    let class_id = name.split_whitespace().next().unwrap_or("").to_string();
+                    name.split_whitespace().next().unwrap_or("").to_string()
+                };
+                if !class_id.is_empty() {
                     classes.entry(class_id.clone()).or_insert_with(|| ClassDef {
                         id: class_id,
                         stereotype: None,
@@ -260,18 +283,16 @@ impl ClassDiagramParser {
             }
         }
 
-        let mut node_positions: HashMap<String, (f32, f32, f32, f32)> = HashMap::new();
         let mut nodes: Vec<DiagramNode> = Vec::new();
+        let mut edges: Vec<FlowEdge> = Vec::new();
 
         let margin_x = 60.0f32;
         let margin_y = 60.0f32;
-        let card_w = 260.0f32;
         let header_h = 44.0f32;
         let row_spacing = 80.0f32;
         let col_spacing = 60.0f32;
 
         let is_horizontal = dir == LayoutDirection::LR || dir == LayoutDirection::RL;
-
         let mut current_offset = if is_horizontal { margin_x } else { margin_y };
         let mut max_cross = 0.0f32;
 
@@ -285,9 +306,24 @@ impl ClassDiagramParser {
             let mut max_main_in_rank = 0.0f32;
 
             for class in group {
-                let attr_count = class.attributes.len();
-                let meth_count = class.methods.len();
-                let card_h = header_h + (attr_count.max(1) * 22) as f32 + (meth_count.max(1) * 22) as f32 + 20.0;
+                let mut max_char_len = class.id.len();
+                for attr in &class.attributes {
+                    let mut len = 2 + attr.name.len();
+                    if let Some(ref t) = attr.type_name { len += t.len() + 1; }
+                    if let Some(ref c) = attr.comment { len += c.len() + 4; }
+                    max_char_len = max_char_len.max(len);
+                }
+                for meth in &class.methods {
+                    let mut len = 2 + meth.name.len();
+                    if let Some(ref t) = meth.type_name { len += t.len() + 3; }
+                    if let Some(ref c) = meth.comment { len += c.len() + 4; }
+                    max_char_len = max_char_len.max(len);
+                }
+
+                let card_w = (max_char_len as f32 * 7.5 + 48.0).clamp(240.0, 520.0);
+                let attr_count = class.attributes.len().max(1);
+                let meth_count = class.methods.len().max(1);
+                let card_h = header_h + (attr_count as f32 * 20.0) + (meth_count as f32 * 20.0) + 36.0;
 
                 let (x, y) = if is_horizontal {
                     (current_offset, cross_offset)
@@ -295,11 +331,13 @@ impl ClassDiagramParser {
                     (cross_offset, current_offset)
                 };
 
-                node_positions.insert(class.id.clone(), (x, y, card_w, card_h));
                 nodes.push(DiagramNode {
                     id: class.id.clone(),
                     label: class.id.clone(),
+                    stereotype: class.stereotype.clone(),
                     lines: vec![escape_xml(&class.id)],
+                    attributes: class.attributes.clone(),
+                    methods: class.methods.clone(),
                     x,
                     y,
                     width: card_w,
@@ -320,200 +358,35 @@ impl ClassDiagramParser {
             current_offset += max_main_in_rank + row_spacing;
         }
 
+        for rel in relations {
+            edges.push(FlowEdge {
+                from: rel.from.clone(),
+                to: rel.to.clone(),
+                label: rel.label.clone(),
+                dotted: rel.kind == RelationKind::Realization || rel.kind == RelationKind::Dependency,
+                thick: false,
+                kind: rel.kind,
+            });
+        }
+
         let (total_w, total_h) = if is_horizontal {
             ((current_offset + margin_x).max(900.0), (max_cross + margin_y).max(600.0))
         } else {
             ((max_cross + margin_x).max(900.0), (current_offset + margin_y).max(600.0))
         };
 
-        let mut svg = format!(
-            r##"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">"##,
-            total_w, total_h, total_w, total_h
-        );
-
-        // Marker Definitions with Theme Colors
-        svg.push_str(&format!(
-            r##"
-        <defs>
-            <marker id="inheritance" viewBox="0 0 16 12" refX="15" refY="6" markerWidth="16" markerHeight="12" orient="auto">
-                <polygon points="0 0, 15 6, 0 12" fill="{}" stroke="{}" stroke-width="2"/>
-            </marker>
-            <marker id="composition" viewBox="0 0 16 12" refX="16" refY="6" markerWidth="16" markerHeight="12" orient="auto">
-                <polygon points="0 6, 8 0, 16 6, 8 12" fill="{}" stroke="{}"/>
-            </marker>
-            <marker id="aggregation" viewBox="0 0 16 12" refX="16" refY="6" markerWidth="16" markerHeight="12" orient="auto">
-                <polygon points="0 6, 8 0, 16 6, 8 12" fill="{}" stroke="{}" stroke-width="2"/>
-            </marker>
-            <marker id="association" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto">
-                <polyline points="0 1, 10 5, 0 9" fill="none" stroke="{}" stroke-width="2"/>
-            </marker>
-            <marker id="dependency" viewBox="0 0 12 10" refX="11" refY="5" markerWidth="12" markerHeight="10" orient="auto">
-                <polyline points="0 1, 10 5, 0 9" fill="none" stroke="{}" stroke-width="2"/>
-            </marker>
-        </defs>
-        "##,
-            palette.card_bg, palette.border,
-            palette.border, palette.border,
-            palette.card_bg, palette.border,
-            palette.border,
-            palette.text_muted
-        ));
-
-        // Background
-        svg.push_str(&format!(r##"<rect width="{}" height="{}" fill="{}"/>"##, total_w, total_h, palette.background));
-
-        // Draw Relationships
-        for rel in relations {
-            if let (Some(&(fx, fy, fw, fh)), Some(&(tx, ty, tw, th))) = (
-                node_positions.get(&rel.from),
-                node_positions.get(&rel.to),
-            ) {
-                let (start_x, start_y, end_x, end_y) = if is_horizontal {
-                    (fx + fw, fy + fh / 2.0, tx, ty + th / 2.0)
-                } else {
-                    (fx + fw / 2.0, fy + fh, tx + tw / 2.0, ty)
-                };
-
-                let marker = match rel.kind {
-                    RelationKind::Inheritance => r#"marker-end="url(#inheritance)""#,
-                    RelationKind::Realization => r#"marker-end="url(#inheritance)" stroke-dasharray="6,4""#,
-                    RelationKind::Composition => r#"marker-end="url(#composition)""#,
-                    RelationKind::Aggregation => r#"marker-end="url(#aggregation)""#,
-                    RelationKind::Association => r#"marker-end="url(#association)""#,
-                    RelationKind::Dependency => r#"marker-end="url(#dependency)" stroke-dasharray="4,4""#,
-                    RelationKind::Link => "",
-                };
-
-                let mid_x = (start_x + end_x) / 2.0;
-                let mid_y = (start_y + end_y) / 2.0;
-
-                let path_d = if is_horizontal {
-                    format!("M {} {} C {} {}, {} {}, {} {}", start_x, start_y, mid_x, start_y, mid_x, end_y, end_x, end_y)
-                } else {
-                    format!("M {} {} C {} {}, {} {}, {} {}", start_x, start_y, start_x, mid_y, end_x, mid_y, end_x, end_y)
-                };
-
-                svg.push_str(&format!(
-                    r##"<path d="{}" fill="none" stroke="{}" stroke-width="2" {}/>"##,
-                    path_d, palette.edge_stroke, marker
-                ));
-
-                if let Some(ref lbl) = rel.label {
-                    let esc_lbl = escape_xml(lbl);
-                    svg.push_str(&format!(
-                        r##"<rect x="{}" y="{}" width="{}" height="20" rx="4" fill="{}" opacity="0.95"/>
-                        <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
-                        mid_x - (lbl.len() * 4) as f32 - 6.0, mid_y - 10.0, (lbl.len() * 8 + 12) as f32,
-                        palette.badge_bg,
-                        mid_x, mid_y, palette.text_main, esc_lbl
-                    ));
-                }
-            }
-        }
-
-        // Draw Class Cards
-        for class in class_list {
-            if let Some(&(x, y, w, h)) = node_positions.get(&class.id) {
-                let esc_id = escape_xml(&class.id);
-                svg.push_str(&format!(
-                    r##"<g id="node_{}" class="class-node">
-                    <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}" stroke="{}" stroke-width="2"/>
-                    <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}"/>
-                    <line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1.5"/>"##,
-                    esc_id,
-                    x, y, w, h, palette.card_bg, palette.border,
-                    x, y, w, header_h, palette.card_header,
-                    x, y + header_h, x + w, y + header_h, palette.border
-                ));
-
-                // Stereotype - Note: Using literal UTF-8 « and » instead of &laquo; to be valid XML
-                if let Some(ref stereo) = class.stereotype {
-                    let esc_stereo = escape_xml(stereo);
-                    svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" text-anchor="middle" dominant-baseline="middle">«{}»</text>"##,
-                        x + w / 2.0, y + 14.0, palette.text_accent, esc_stereo
-                    ));
-                    svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
-                        x + w / 2.0, y + 30.0, palette.text_main, esc_id
-                    ));
-                } else {
-                    svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
-                        x + w / 2.0, y + 22.0, palette.text_main, esc_id
-                    ));
-                }
-
-                // Attributes
-                let mut cur_y = y + header_h + 16.0;
-                if class.attributes.is_empty() {
-                    svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-style="italic">  (no attributes)</text>"##,
-                        x + 16.0, cur_y, palette.text_muted
-                    ));
-                    cur_y += 20.0;
-                } else {
-                    for attr in &class.attributes {
-                        let vis_color = match attr.visibility {
-                            '+' => &palette.public_vis,
-                            '-' => &palette.private_vis,
-                            '#' => &palette.protected_vis,
-                            _ => &palette.package_vis,
-                        };
-                        let esc_attr = escape_xml(&attr.raw);
-                        svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-weight="bold">{}</text>
-                            <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12">{}</text>"##,
-                            x + 14.0, cur_y, vis_color, attr.visibility,
-                            x + 28.0, cur_y, palette.text_sub, esc_attr
-                        ));
-                        cur_y += 20.0;
-                    }
-                }
-
-                // Divider line between attributes and methods
-                svg.push_str(&format!(
-                    r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
-                    x, cur_y, x + w, cur_y, palette.divider
-                ));
-                cur_y += 16.0;
-
-                // Methods
-                if class.methods.is_empty() {
-                    svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-style="italic">  (no methods)</text>"##,
-                        x + 16.0, cur_y, palette.text_muted
-                    ));
-                } else {
-                    for meth in &class.methods {
-                        let vis_color = match meth.visibility {
-                            '+' => &palette.public_vis,
-                            '-' => &palette.private_vis,
-                            '#' => &palette.protected_vis,
-                            _ => &palette.package_vis,
-                        };
-                        let esc_meth = escape_xml(&meth.raw);
-                        svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-weight="bold">{}</text>
-                            <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12">{}</text>"##,
-                            x + 14.0, cur_y, vis_color, meth.visibility,
-                            x + 28.0, cur_y, palette.text_main, esc_meth
-                        ));
-                        cur_y += 20.0;
-                    }
-                }
-
-                svg.push_str("</g>");
-            }
-        }
-
-        svg.push_str("</svg>");
-
-        Ok(RenderedDiagram {
-            svg,
+        let mut diagram = RenderedDiagram {
+            svg: String::new(),
             width: total_w,
             height: total_h,
             nodes,
-        })
+            edges,
+            is_class_diagram: true,
+            direction: dir,
+            selected_node_id: None,
+        };
+
+        diagram.regenerate_svg(palette);
+        Ok(diagram)
     }
 }
