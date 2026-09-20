@@ -14,8 +14,22 @@ use crate::app_state::AppState;
 use crate::modal::UiAction;
 
 fn parse_hex_color(hex: &str) -> u32 {
-    let clean = hex.trim_start_matches('#');
-    u32::from_str_radix(clean, 16).unwrap_or(0x1e1e2e)
+    let s = hex.trim().to_lowercase();
+    if s == "transparent" || s == "none" {
+        return 0x00000000;
+    }
+    let clean = s.trim_start_matches('#');
+    match clean.len() {
+        6 => {
+            if let Ok(rgb) = u32::from_str_radix(clean, 16) {
+                0xff00_0000 | rgb
+            } else {
+                0xff1e_1e2e
+            }
+        }
+        8 => u32::from_str_radix(clean, 16).unwrap_or(0xff1e_1e2e),
+        _ => 0xff1e_1e2e,
+    }
 }
 
 pub struct MermAppWindow {
@@ -152,7 +166,8 @@ impl ApplicationHandler for MermAppWindow {
             let initial_title = format!("merm | {}", self.app_state.hud_status());
             let win_attr = Window::default_attributes()
                 .with_title(initial_title)
-                .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0));
+                .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0))
+                .with_transparent(true);
 
             let window = Arc::new(
                 event_loop

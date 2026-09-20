@@ -54,7 +54,7 @@ fn load_theme_from_config() -> Option<ThemeId> {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
             let default_config = r#"# merm configuration file
-# Default theme: catppuccin-mocha, tokyo-night, nord, gruvbox, dracula, latte
+# Default theme: catppuccin-mocha, tokyo-night, nord, gruvbox, dracula, monokai, terminal, latte
 theme = "catppuccin-mocha"
 
 # Default diagram layout direction (TD, LR, RL, BT)
@@ -77,7 +77,7 @@ ARGS:
     <FILE>    Path to Markdown or Mermaid file (reads from stdin if '-' or omitted)
 
 OPTIONS:
-    -t, --theme <NAME>   Set color theme (catppuccin, tokyo-night, nord, gruvbox, dracula, latte)
+    -t, --theme <NAME>   Set color theme (catppuccin, tokyo-night, nord, gruvbox, dracula, monokai, terminal, latte)
     --software-render    Force CPU software rasterization fallback (softbuffer/tiny-skia)
     --headless           Run in headless mode without opening a GUI window
     --socket <PATH>      Custom Unix Domain Socket path for editor IPC
@@ -89,7 +89,7 @@ VIM KEYBINDINGS (Modal Navigation in GUI):
     +, -                 Zoom in, zoom out
     0                    Reset view (fit to screen)
     p, Tab               Pivot diagram direction (TD -> LR -> RL -> BT)
-    t                    Cycle color themes (Mocha -> Tokyo Night -> Nord -> Gruvbox -> Dracula -> Latte)
+    t                    Cycle color themes (Mocha -> Tokyo Night -> Nord -> Gruvbox -> Dracula -> Monokai -> Terminal -> Latte)
     n, N                 Select next / previous node
     / or f               Fuzzy search nodes
     Mouse Drag           Pan canvas
@@ -130,7 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if i + 1 < args.len() {
                     cli_theme = ThemeId::from_name(&args[i + 1]);
                     if cli_theme.is_none() {
-                        eprintln!("Unknown theme '{}'. Options: catppuccin, tokyo-night, nord, gruvbox, dracula, latte", args[i + 1]);
+                        eprintln!("Unknown theme '{}'. Options: catppuccin, tokyo-night, nord, gruvbox, dracula, monokai, terminal, latte", args[i + 1]);
                     }
                     i += 1;
                 } else {

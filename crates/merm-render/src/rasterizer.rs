@@ -121,26 +121,33 @@ impl SvgRasterizer {
             }
         };
 
-        let (bg_r, bg_g, bg_b) = if let Some(c) = bg_color {
-            (
-                ((c >> 16) & 0xFF) as u8,
-                ((c >> 8) & 0xFF) as u8,
-                (c & 0xFF) as u8,
-            )
-        } else {
-            (30, 30, 46)
+        let bg_fill_color = match bg_color {
+            Some(0) => resvg::tiny_skia::Color::TRANSPARENT,
+            Some(c) => {
+                let a = ((c >> 24) & 0xFF) as u8;
+                let r = ((c >> 16) & 0xFF) as u8;
+                let g = ((c >> 8) & 0xFF) as u8;
+                let b = (c & 0xFF) as u8;
+                let alpha = if a == 0 && (r != 0 || g != 0 || b != 0) {
+                    255
+                } else {
+                    a
+                };
+                resvg::tiny_skia::Color::from_rgba8(r, g, b, alpha)
+            }
+            None => resvg::tiny_skia::Color::from_rgba8(30, 30, 46, 255),
         };
 
         let mut pixmap_guard = self.cached_pixmap.lock().unwrap();
         let mut pixmap = match pixmap_guard.take() {
             Some(mut p) if p.width() == width && p.height() == height => {
-                p.fill(resvg::tiny_skia::Color::from_rgba8(bg_r, bg_g, bg_b, 255));
+                p.fill(bg_fill_color);
                 p
             }
             _ => {
                 let mut p = resvg::tiny_skia::Pixmap::new(width, height)
                     .ok_or_else(|| "Failed to allocate tiny-skia pixmap".to_string())?;
-                p.fill(resvg::tiny_skia::Color::from_rgba8(bg_r, bg_g, bg_b, 255));
+                p.fill(bg_fill_color);
                 p
             }
         };
@@ -154,7 +161,10 @@ impl SvgRasterizer {
         let (chunks, _) = rgba.as_chunks::<4>();
         let len = chunks.len().min(dest_buffer.len());
         for (dst, chunk) in dest_buffer[..len].iter_mut().zip(&chunks[..len]) {
-            *dst = ((chunk[0] as u32) << 16) | ((chunk[1] as u32) << 8) | (chunk[2] as u32);
+            *dst = ((chunk[3] as u32) << 24)
+                | ((chunk[0] as u32) << 16)
+                | ((chunk[1] as u32) << 8)
+                | (chunk[2] as u32);
         }
 
         *pixmap_guard = Some(pixmap);

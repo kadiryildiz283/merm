@@ -112,7 +112,7 @@ impl RenderedDiagram {
                 <polyline points="0 1, 10 5, 0 9" fill="none" stroke="{}" stroke-width="2"/>
             </marker>
         </defs>
-        <rect width="100%" height="100%" fill="{}"/>
+        {}
         "##,
             palette.edge_stroke,
             palette.card_bg, palette.edge_stroke,
@@ -121,7 +121,16 @@ impl RenderedDiagram {
             palette.card_bg, palette.protected_vis,
             palette.border,
             palette.package_vis,
-            palette.background
+            if palette.background.eq_ignore_ascii_case("transparent")
+                || palette.background.eq_ignore_ascii_case("none")
+            {
+                String::new()
+            } else {
+                format!(
+                    r##"<rect width="100%" height="100%" fill="{}"/>"##,
+                    palette.background
+                )
+            }
         ));
 
         // Draw edges
