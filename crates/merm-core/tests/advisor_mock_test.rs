@@ -134,3 +134,70 @@ edition = "2021"
     assert!(new_diag.is_some());
     assert!(root.join("src/worker.rs").exists());
 }
+
+#[tokio::test]
+async fn test_advisor_advice_diagram_and_file_extraction_and_apply() {
+    let root = create_temp_dir();
+
+    fs::write(
+        root.join("Cargo.toml"),
+        r#"[package]
+name = "advice_extract_test"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/lib.rs"), "// lib\n").unwrap();
+
+    let mut manifest = ProjectManifest::load_or_init(&root).unwrap();
+    let initial_diagram = "classDiagram\n    class User\n";
+
+    let mock = MockLlmProvider::new();
+    let llm_reply = r#"Here is the recommended architecture:
+
+```mermaid
+classDiagram
+    direction TD
+    class User {
+        +id: String
+    }
+    class Session {
+        +token: String
+    }
+    User --> Session
+```
+
+And here is the new module implementation:
+
+```rust
+// File: src/session.rs
+pub struct Session {
+    pub token: String,
+}
+```
+"#;
+
+    mock.enqueue_response(Ok(llm_reply.to_string()));
+
+    let proposal =
+        Advisor::request_advice_with_provider(&manifest, initial_diagram, "add session", &mock)
+            .await
+            .unwrap();
+
+    // Verify diagram was extracted!
+    assert!(proposal.suggested_diagram.is_some());
+    let extracted_diag = proposal.suggested_diagram.as_ref().unwrap();
+    assert!(extracted_diag.contains("User --> Session"));
+
+    // Verify files were extracted!
+    assert_eq!(proposal.suggested_files.len(), 1);
+    assert_eq!(proposal.suggested_files[0].0, "src/session.rs");
+    assert!(proposal.suggested_files[0].1.contains("pub struct Session"));
+
+    // Verify apply_advice writes file and returns success
+    let result = Advisor::apply_advice(&mut manifest, &proposal, initial_diagram).unwrap();
+    assert!(result.contains("Applied advice"));
+    assert!(root.join("src/session.rs").exists());
+}

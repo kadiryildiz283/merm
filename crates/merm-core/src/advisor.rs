@@ -1,4 +1,5 @@
 use crate::error::CoreError;
+use crate::extractor::DiagramExtractor;
 use crate::llm_client::{LlmClient, LlmProvider};
 use crate::manifest::ProjectManifest;
 use crate::rust_scanner::RustScanner;
@@ -165,12 +166,20 @@ impl Advisor {
     ) -> Result<AdviceProposal, CoreError> {
         let scan_report = RustScanner::scan_project(&manifest.project_root)?;
 
-        let system_prompt = r#"You are a senior Rust systems architect. The user is asking for architectural advice for their Rust project and its Mermaid diagram.
-Analyze the request and provide your advice. If files or diagrams should be changed, you can describe them.
-Always structure your advice clearly with rationale and trade-offs."#;
+        let system_prompt = r#"You are a senior Rust systems architect. The user is asking for architectural advice or modifications for their Rust project and Mermaid diagram.
+CRITICAL INSTRUCTIONS:
+1. DO NOT call any external tools, shell commands, or subagents. Respond directly in text.
+2. If your recommendation updates or changes the Mermaid architecture diagram, ALWAYS provide the COMPLETE updated diagram in a ```mermaid ... ``` code block.
+3. If your recommendation adds or modifies Rust files, provide each file clearly using:
+```rust
+// File: src/module.rs
+<complete code>
+```
+or embed a JSON block conforming to {"files": [{"path": "src/...", "content": "..."}], "diagram": "classDiagram..."}.
+4. Structure your advice clearly with executive rationale, updated diagram, code implementation, and trade-offs."#;
 
         let user_query = format!(
-            "User Query: {}\n\nMermaid Diagram:\n{}\n\nExisting Rust Modules:\n{:?}\n",
+            "User Query: {}\n\nCurrent Mermaid Diagram:\n{}\n\nExisting Rust Modules:\n{:?}\n",
             user_prompt,
             diagram_source,
             scan_report
@@ -188,12 +197,137 @@ Always structure your advice clearly with rationale and trade-offs."#;
             ),
         };
 
+        // 1. Extract suggested Mermaid diagram from analysis
+        let mut suggested_diagram = DiagramExtractor::extract(&analysis)
+            .ok()
+            .and_then(|blocks| blocks.into_iter().next().map(|b| b.source));
+
+        // 2. Extract suggested files from analysis
+        let mut suggested_files = Self::extract_files_from_text(&analysis);
+
+        // 3. Check if JSON schema was embedded
+        if let Some(json_ai) = Self::try_extract_json(&analysis) {
+            if suggested_diagram.is_none() && json_ai.diagram.is_some() {
+                suggested_diagram = json_ai.diagram;
+            }
+            if suggested_files.is_empty() && !json_ai.files.is_empty() {
+                suggested_files = json_ai
+                    .files
+                    .into_iter()
+                    .map(|f| (f.path, f.content))
+                    .collect();
+            }
+        }
+
         Ok(AdviceProposal {
             prompt: user_prompt.to_string(),
             analysis,
-            suggested_files: Vec::new(),
-            suggested_diagram: None,
+            suggested_files,
+            suggested_diagram,
         })
+    }
+
+    pub fn extract_files_from_text(text: &str) -> Vec<(String, String)> {
+        let mut files = Vec::new();
+        let lines: Vec<&str> = text.lines().collect();
+        let mut i = 0;
+
+        while i < lines.len() {
+            let line = lines[i].trim();
+            if line.starts_with("```rust") || line.starts_with("```rs") {
+                let fence_meta = line
+                    .trim_start_matches("```rust")
+                    .trim_start_matches("```rs")
+                    .trim();
+                let mut candidate_path: Option<String> = None;
+
+                if fence_meta.starts_with(':') {
+                    candidate_path = Some(fence_meta.trim_start_matches(':').trim().to_string());
+                }
+
+                if candidate_path.is_none() && i > 0 {
+                    let prev = lines[i - 1].trim();
+                    candidate_path = Self::parse_file_path_comment(prev);
+                }
+
+                i += 1;
+                let mut block_lines = Vec::new();
+                let mut inside = true;
+
+                while i < lines.len() && inside {
+                    let cur = lines[i];
+                    if cur.trim().starts_with("```") {
+                        inside = false;
+                    } else {
+                        if candidate_path.is_none() && block_lines.is_empty() {
+                            candidate_path = Self::parse_file_path_comment(cur.trim());
+                            if candidate_path.is_none() {
+                                block_lines.push(cur);
+                            }
+                        } else {
+                            block_lines.push(cur);
+                        }
+                    }
+                    i += 1;
+                }
+
+                if let Some(path) = candidate_path {
+                    let clean_path = path
+                        .trim()
+                        .trim_matches('`')
+                        .trim_matches('"')
+                        .trim_matches('\'')
+                        .to_string();
+                    if clean_path.ends_with(".rs") || clean_path.contains("src/") {
+                        files.push((clean_path, block_lines.join("\n")));
+                    }
+                }
+            } else {
+                i += 1;
+            }
+        }
+
+        files
+    }
+
+    fn parse_file_path_comment(line: &str) -> Option<String> {
+        let trimmed = line
+            .trim()
+            .trim_matches('#')
+            .trim()
+            .trim_matches('*')
+            .trim();
+        for prefix in &[
+            "// File:", "// file:", "// path:", "File:", "file:", "Path:", "path:",
+        ] {
+            if let Some(rest) = trimmed.strip_prefix(prefix) {
+                let path = rest.trim().trim_matches('`').trim_matches(':').trim();
+                if !path.is_empty() && (path.ends_with(".rs") || path.contains('/')) {
+                    return Some(path.to_string());
+                }
+            }
+        }
+        if trimmed.starts_with('`') && trimmed.ends_with('`') {
+            let inner = trimmed.trim_matches('`');
+            if inner.ends_with(".rs") && inner.contains('/') {
+                return Some(inner.to_string());
+            }
+        }
+        None
+    }
+
+    fn try_extract_json(text: &str) -> Option<AiOutputSchema> {
+        if let Some(start) = text.find('{') {
+            if let Some(end) = text.rfind('}') {
+                if end > start {
+                    let slice = &text[start..=end];
+                    if let Ok(data) = serde_json::from_str::<AiOutputSchema>(slice) {
+                        return Some(data);
+                    }
+                }
+            }
+        }
+        None
     }
 
     pub fn apply_advice(
@@ -211,32 +345,64 @@ Always structure your advice clearly with rationale and trade-offs."#;
             .map(|(p, _)| p.clone())
             .collect();
 
-        // 1. Create rollback snapshot
-        let snapshot =
-            TransactionSnapshot::create(&manifest.project_root, &file_paths, current_diagram)?;
+        if !file_paths.is_empty() {
+            // 1. Create rollback snapshot
+            let snapshot =
+                TransactionSnapshot::create(&manifest.project_root, &file_paths, current_diagram)?;
 
-        // 2. Apply proposed file mutations
-        for (rel_path, content) in &proposal.suggested_files {
-            let abs_path = manifest.project_root.join(rel_path);
-            if let Some(parent) = abs_path.parent() {
-                let _ = fs::create_dir_all(parent);
+            // 2. Apply proposed file mutations
+            for (rel_path, content) in &proposal.suggested_files {
+                let abs_path = manifest.project_root.join(rel_path);
+                if let Some(parent) = abs_path.parent() {
+                    let _ = fs::create_dir_all(parent);
+                }
+                if let Err(e) = fs::write(&abs_path, content) {
+                    let _ = snapshot.rollback();
+                    return Err(CoreError::LayoutFailed(format!(
+                        "Failed to write proposed file {}: {}",
+                        rel_path, e
+                    )));
+                }
             }
-            if let Err(e) = fs::write(&abs_path, content) {
-                let _ = snapshot.rollback();
-                return Err(CoreError::LayoutFailed(format!(
-                    "Failed to write proposed file {}: {}",
-                    rel_path, e
-                )));
+
+            // 3. Verify cargo check or rollback
+            snapshot.verify_or_rollback()?;
+
+            // 4. Update manifest bindings if new files were added
+            if let Ok(scan_report) = RustScanner::scan_project(&manifest.project_root) {
+                for sym in &scan_report.symbols {
+                    if manifest.get_binding(&sym.name).is_none() {
+                        manifest.add_binding(crate::manifest::NodeBinding {
+                            id: sym.name.clone(),
+                            file: sym.file_path.clone(),
+                            symbol: sym.name.clone(),
+                            kind: format!("{:?}", sym.kind).to_lowercase(),
+                            executable: sym.is_executable,
+                            entrypoint: sym.primary_entrypoint.clone(),
+                            input_type: Some("String".to_string()),
+                            output_type: Some("String".to_string()),
+                        });
+                    }
+                }
+                let _ = manifest.save();
             }
+
+            let diag_info = if proposal.suggested_diagram.is_some() {
+                " and diagram updated"
+            } else {
+                ""
+            };
+
+            Ok(format!(
+                "Applied advice: {} file(s) mutated{} (build verified).",
+                proposal.suggested_files.len(),
+                diag_info
+            ))
+        } else if proposal.suggested_diagram.is_some() {
+            Ok("Successfully applied advice: Mermaid diagram updated on canvas.".to_string())
+        } else {
+            Ok("No modifications were required.".to_string())
         }
-
-        // 3. Verify cargo check or rollback
-        snapshot.verify_or_rollback()?;
-
-        Ok(format!(
-            "Successfully applied advice recommendations ({} files modified, build verified).",
-            proposal.suggested_files.len()
-        ))
     }
 
     pub async fn execute_ai(

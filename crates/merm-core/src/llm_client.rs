@@ -211,6 +211,12 @@ impl AgyLlmProvider {
     }
 }
 
+#[derive(Debug, Deserialize)]
+struct AgyJsonEnvelope {
+    #[serde(default)]
+    response: Option<String>,
+}
+
 impl LlmProvider for AgyLlmProvider {
     fn query(
         &self,
@@ -218,7 +224,10 @@ impl LlmProvider for AgyLlmProvider {
         user_prompt: &str,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, CoreError>> + Send + '_>>
     {
-        let full_prompt = format!("Instructions:\n{}\n\nTask:\n{}", system_prompt, user_prompt);
+        let full_prompt = format!(
+            "CRITICAL DIRECTIVE: DO NOT call any external tools, run terminal commands, or invoke subagents. Provide your complete, final response directly and immediately as plain text.\n\nInstructions:\n{}\n\nTask:\n{}",
+            system_prompt, user_prompt
+        );
         let bin = self.bin_path.clone();
         let model_opt = self.model.clone();
 
@@ -226,6 +235,9 @@ impl LlmProvider for AgyLlmProvider {
             let mut cmd = tokio::process::Command::new(&bin);
             cmd.arg("-p")
                 .arg(&full_prompt)
+                .arg("--output-format")
+                .arg("json")
+                .arg("--disable-slash-commands")
                 .arg("--dangerously-skip-permissions");
 
             if let Some(ref m) = model_opt {
@@ -251,14 +263,24 @@ impl LlmProvider for AgyLlmProvider {
                 )));
             }
 
-            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if stdout.is_empty() {
+            let raw_stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if raw_stdout.is_empty() {
                 return Err(CoreError::LayoutFailed(
                     "Antigravity CLI (agy) returned empty output".to_string(),
                 ));
             }
 
-            Ok(stdout)
+            // Extract the clean response payload from the agy JSON envelope
+            if let Ok(envelope) = serde_json::from_str::<AgyJsonEnvelope>(&raw_stdout) {
+                if let Some(resp) = envelope.response {
+                    let cleaned = resp.trim().to_string();
+                    if !cleaned.is_empty() {
+                        return Ok(cleaned);
+                    }
+                }
+            }
+
+            Ok(raw_stdout)
         })
     }
 }

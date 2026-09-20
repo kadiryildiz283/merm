@@ -283,10 +283,22 @@ impl AppState {
                                 self.status_message = format!("&ok rollback: {}", e);
                             }
                         }
+                    } else if let Some(ref new_diag) = proposal.suggested_diagram {
+                        self.diagram_source = new_diag.clone();
+                        self.recalculate_diagram();
+                        self.status_message =
+                            "&ok: Mermaid diagram updated on canvas from proposal.".to_string();
+                        self.pending_advice = None;
+                    } else {
+                        self.status_message =
+                            "&ok: Advice contained architectural guidance without mutations."
+                                .to_string();
+                        self.pending_advice = None;
                     }
                 } else {
                     self.status_message =
-                        "No pending advice to apply. Run `&advice <QUERY>` first.".to_string();
+                        "No pending advice to apply. Run `&advice <QUERY>` or `&agy <QUERY>` first."
+                            .to_string();
                 }
             }
             Command::Ai { prompt } => {
@@ -356,11 +368,26 @@ impl AppState {
                             &prompt,
                         )) {
                             Ok(proposal) => {
-                                self.status_message =
-                                    "&agy advice ready. Type `&ok` to apply proposal.".to_string();
+                                let diag_info = if proposal.suggested_diagram.is_some() {
+                                    " [Diagram Update Detected]"
+                                } else {
+                                    ""
+                                };
+                                let files_info = if !proposal.suggested_files.is_empty() {
+                                    format!(
+                                        " [{} File(s) Proposed]",
+                                        proposal.suggested_files.len()
+                                    )
+                                } else {
+                                    String::new()
+                                };
+                                self.status_message = format!(
+                                    "&agy advice ready.{}{} Type `&ok` to apply proposal to app.",
+                                    diag_info, files_info
+                                );
                                 self.report_content = Some(format!(
-                                    "=== Google Antigravity (AGY) Proposal ===\nQuery: {}\n\n{}\n\nType `&ok` to apply changes.",
-                                    proposal.prompt, proposal.analysis
+                                    "=== Google Antigravity (AGY) Proposal ===\nQuery: {}\n{}{}\n\n{}\n\nType `&ok` to apply changes.",
+                                    proposal.prompt, diag_info, files_info, proposal.analysis
                                 ));
                                 self.pending_advice = Some(proposal);
                                 self.modal.mode = UiMode::Report;
@@ -374,9 +401,9 @@ impl AppState {
                     self.status_message = format!("Invoking agy on diagram for '{}'...", prompt);
                     let agy = AgyLlmProvider::new(None);
                     let system_prompt =
-                        "You are an expert systems architect analyzing a Mermaid diagram.";
+                        "You are an expert systems architect analyzing a Mermaid diagram.\nCRITICAL: DO NOT call any external tools or subagents. Respond directly in text.\nIf you suggest changes or a new architecture, ALWAYS provide the complete updated diagram in a ```mermaid ... ``` code block.";
                     let user_prompt = format!(
-                        "Diagram:\n```mermaid\n{}\n```\n\nTask: {}\nProvide clean, architectural recommendations.",
+                        "Diagram:\n```mermaid\n{}\n```\n\nTask: {}\nProvide clean, architectural recommendations with the updated diagram.",
                         self.diagram_source, prompt
                     );
                     let rt = tokio::runtime::Builder::new_current_thread()
@@ -385,11 +412,30 @@ impl AppState {
                     if let Ok(runtime) = rt {
                         match runtime.block_on(agy.query(system_prompt, &user_prompt)) {
                             Ok(ans) => {
-                                self.status_message = "&agy query completed.".to_string();
+                                let suggested_diag = DiagramExtractor::extract(&ans)
+                                    .ok()
+                                    .and_then(|blocks| blocks.into_iter().next().map(|b| b.source));
+
+                                let diag_info = if suggested_diag.is_some() {
+                                    " [Diagram Update Detected]"
+                                } else {
+                                    ""
+                                };
+
+                                self.status_message = format!(
+                                    "&agy advice ready.{}. Type `&ok` to apply to canvas.",
+                                    diag_info
+                                );
                                 self.report_content = Some(format!(
-                                    "=== Google Antigravity (AGY) Response ===\nQuery: {}\n\n{}",
-                                    prompt, ans
+                                    "=== Google Antigravity (AGY) Response ===\nQuery: {}\n{}\n\n{}\n\nType `&ok` to apply diagram to canvas.",
+                                    prompt, diag_info, ans
                                 ));
+                                self.pending_advice = Some(AdviceProposal {
+                                    prompt: prompt.clone(),
+                                    analysis: ans,
+                                    suggested_files: Vec::new(),
+                                    suggested_diagram: suggested_diag,
+                                });
                                 self.modal.mode = UiMode::Report;
                             }
                             Err(e) => {
@@ -718,10 +764,24 @@ Keybindings (NORMAL mode):
                 self.status_message = format!("&check failed: {}", e);
             }
             WorkerResult::AdviceFinished(Ok(proposal)) => {
-                self.status_message = "&advice ready. Type `&ok` to apply proposal.".to_string();
+                let diag_info = if proposal.suggested_diagram.is_some() {
+                    " [Diagram Update Detected]"
+                } else {
+                    ""
+                };
+                let files_info = if !proposal.suggested_files.is_empty() {
+                    format!(" [{} File(s) Proposed]", proposal.suggested_files.len())
+                } else {
+                    String::new()
+                };
+
+                self.status_message = format!(
+                    "&advice ready.{}{} Type `&ok` to apply proposal to app.",
+                    diag_info, files_info
+                );
                 self.report_content = Some(format!(
-                    "=== Architectural Advice Proposal ===\nQuery: {}\n\n{}\n\nType `&ok` to apply changes.",
-                    proposal.prompt, proposal.analysis
+                    "=== Architectural Advice Proposal ===\nQuery: {}\n{}{}\n\n{}\n\nType `&ok` to apply diagram & file changes to application.",
+                    proposal.prompt, diag_info, files_info, proposal.analysis
                 ));
                 self.pending_advice = Some(proposal);
                 self.modal.mode = UiMode::Report;
