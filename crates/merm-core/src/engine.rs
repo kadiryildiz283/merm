@@ -179,7 +179,7 @@ impl RenderedDiagram {
                     let badge_h = 20.0f32;
                     svg.push_str(&format!(
                         r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1" opacity="0.95"/>
-                        <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
+                        <text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="11" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
                         mid_x - badge_w / 2.0,
                         mid_y - badge_h / 2.0,
                         badge_w,
@@ -230,16 +230,16 @@ impl RenderedDiagram {
                     let esc_stereo = escape_xml(stereo);
                     let badge_text = format!("«{}»", esc_stereo);
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="11" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
                         node.x + node.width / 2.0, node.y + 14.0, palette.text_accent, badge_text
                     ));
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="14" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="14" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
                         node.x + node.width / 2.0, node.y + 30.0, palette.text_main, escape_xml(&node.id)
                     ));
                 } else {
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="15" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="15" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
                         node.x + node.width / 2.0, node.y + 22.0, palette.text_main, escape_xml(&node.id)
                     ));
                 }
@@ -248,7 +248,7 @@ impl RenderedDiagram {
                 let mut cur_y = node.y + header_h + 16.0;
                 if node.attributes.is_empty() {
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-style="italic">  (no attributes)</text>"##,
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12" font-style="italic">  (no attributes)</text>"##,
                         node.x + 16.0, cur_y, palette.text_muted
                     ));
                     cur_y += 20.0;
@@ -261,7 +261,7 @@ impl RenderedDiagram {
                             _ => &palette.package_vis,
                         };
                         svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-weight="bold">{}</text>"##,
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12" font-weight="bold">{}</text>"##,
                             node.x + 14.0, cur_y, vis_color, attr.visibility
                         ));
 
@@ -269,7 +269,7 @@ impl RenderedDiagram {
                         if let Some(ref t) = attr.type_name {
                             let esc_t = escape_xml(t);
                             svg.push_str(&format!(
-                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-weight="bold">{} </text>"##,
+                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12" font-weight="bold">{} </text>"##,
                                 text_x, cur_y, palette.border, esc_t
                             ));
                             text_x += (esc_t.len() as f32 * 7.5) + 6.0;
@@ -277,14 +277,14 @@ impl RenderedDiagram {
 
                         let esc_name = escape_xml(&attr.name);
                         svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12">{}</text>"##,
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12">{}</text>"##,
                             text_x, cur_y, palette.text_main, esc_name
                         ));
                         text_x += (esc_name.len() as f32 * 7.5) + 8.0;
 
                         if let Some(ref comm) = attr.comment {
                             svg.push_str(&format!(
-                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" font-style="italic">// {}</text>"##,
+                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="11" font-style="italic">// {}</text>"##,
                                 text_x, cur_y, palette.text_muted, escape_xml(comm)
                             ));
                         }
@@ -303,7 +303,7 @@ impl RenderedDiagram {
                 // Methods with rich syntax colors
                 if node.methods.is_empty() {
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-style="italic">  (no methods)</text>"##,
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12" font-style="italic">  (no methods)</text>"##,
                         node.x + 16.0, cur_y, palette.text_muted
                     ));
                 } else {
@@ -315,14 +315,14 @@ impl RenderedDiagram {
                             _ => &palette.package_vis,
                         };
                         svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-weight="bold">{}</text>"##,
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12" font-weight="bold">{}</text>"##,
                             node.x + 14.0, cur_y, vis_color, meth.visibility
                         ));
 
                         let mut text_x = node.x + 28.0;
                         let esc_name = escape_xml(&meth.name);
                         svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12">{}</text>"##,
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12">{}</text>"##,
                             text_x, cur_y, palette.text_main, esc_name
                         ));
                         text_x += (esc_name.len() as f32 * 7.5) + 6.0;
@@ -330,7 +330,7 @@ impl RenderedDiagram {
                         if let Some(ref t) = meth.type_name {
                             let esc_t = escape_xml(t);
                             svg.push_str(&format!(
-                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="12" font-weight="bold">: {}</text>"##,
+                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12" font-weight="bold">: {}</text>"##,
                                 text_x, cur_y, palette.border, esc_t
                             ));
                             text_x += (esc_t.len() as f32 * 7.5) + 12.0;
@@ -338,7 +338,7 @@ impl RenderedDiagram {
 
                         if let Some(ref comm) = meth.comment {
                             svg.push_str(&format!(
-                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="11" font-style="italic">// {}</text>"##,
+                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="11" font-style="italic">// {}</text>"##,
                                 text_x, cur_y, palette.text_muted, escape_xml(comm)
                             ));
                         }
@@ -361,7 +361,7 @@ impl RenderedDiagram {
                 if node.lines.len() <= 1 {
                     let text = node.lines.first().cloned().unwrap_or_else(|| escape_xml(&node.label));
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
                         center_x, node.y + node.height / 2.0, palette.text_main, text
                     ));
                 } else {
@@ -375,7 +375,7 @@ impl RenderedDiagram {
                             ("normal", "11", &palette.text_sub)
                         };
                         svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="{}" font-weight="{}" text-anchor="middle">{}</text>"##,
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="{}" font-weight="{}" text-anchor="middle">{}</text>"##,
                             center_x, y_pos, fill, size, weight, line
                         ));
                     }
@@ -819,7 +819,7 @@ impl LayoutEngine {
 
         if nodes.is_empty() {
             let svg = format!(
-                r##"<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect width="100%" height="100%" fill="{}"/><text x="400" y="300" fill="{}" font-family="monospace, sans-serif" font-size="16" text-anchor="middle">No elements to display</text></svg>"##,
+                r##"<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect width="100%" height="100%" fill="{}"/><text x="400" y="300" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="16" text-anchor="middle">No elements to display</text></svg>"##,
                 palette.background, palette.text_main
             );
             return Ok(RenderedDiagram {

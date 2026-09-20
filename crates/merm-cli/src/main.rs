@@ -98,7 +98,10 @@ CONFIG:
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .filter_module("usvg", log::LevelFilter::Error)
+        .filter_module("resvg", log::LevelFilter::Error)
+        .init();
 
     let args: Vec<String> = env::args().collect();
     let mut file_path: Option<String> = None;
