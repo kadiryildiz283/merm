@@ -1,0 +1,13 @@
+[package]
+name = "merm-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+merm-core = { path = "../merm-core" }
+merm-render = { path = "../merm-render" }
+merm-ipc = { path = "../merm-ipc" }
+serde.workspace = true
+thiserror.workspace = true
+log.workspace = true

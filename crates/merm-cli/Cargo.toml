@@ -1,0 +1,21 @@
+[package]
+name = "merm-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "merm"
+path = "src/main.rs"
+
+[dependencies]
+merm-core = { path = "../merm-core" }
+merm-render = { path = "../merm-render" }
+merm-ui = { path = "../merm-ui" }
+merm-ipc = { path = "../merm-ipc" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+log.workspace = true
+env_logger.workspace = true
+libc.workspace = true
