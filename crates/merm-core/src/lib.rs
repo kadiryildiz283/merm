@@ -31,7 +31,7 @@ pub use engine::{
 pub use error::CoreError;
 pub use extractor::{DiagramBlock, DiagramExtractor, DiagramType};
 pub use language_adapter::{BuildStatus, LanguageAdapter, RustAdapter};
-pub use llm_client::{HttpLlmProvider, LlmClient, LlmProvider, MockLlmProvider};
+pub use llm_client::{AgyLlmProvider, HttpLlmProvider, LlmClient, LlmProvider, MockLlmProvider};
 pub use manifest::{NodeBinding, ProjectManifest, ProjectSettings, MANIFEST_FILE, MERM_DIR};
 pub use node_runner::{ExecutionResult, NodeRunner};
 pub use quickjs_engine::QuickJsEngine;

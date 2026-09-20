@@ -31,6 +31,13 @@ pub enum Command {
     Ok,
     /// Autonomous multi-file generation/refactoring with verification (&ai <PROMPT>)
     Ai { prompt: String },
+    /// Invokes Google Antigravity CLI (agy) directly (&agy <PROMPT>)
+    Agy { prompt: String },
+    /// Configures LLM provider, API keys, models or endpoints (:config [KEY] [VALUE])
+    Config {
+        key: Option<String>,
+        value: Option<String>,
+    },
     /// Adds a new class, struct, or enum to diagram and project (:add <kind> <name>)
     Add { kind: NodeKind, name: String },
     /// Connects two diagram nodes with a relation (:connect <from> <to> [label])
@@ -83,6 +90,22 @@ impl Command {
             "advice" | "advise" | "suggest" => Command::Advice { prompt: remainder },
             "ok" | "apply" | "yes" => Command::Ok,
             "ai" | "gen" | "refactor" => Command::Ai { prompt: remainder },
+            "agy" | "antigravity" => Command::Agy { prompt: remainder },
+            "config" | "cfg" => {
+                let mut tokens = remainder.split_whitespace();
+                let key = tokens.next().map(|s| s.to_string());
+                let value = if key.is_some() {
+                    let rest = tokens.collect::<Vec<&str>>().join(" ");
+                    if rest.is_empty() {
+                        None
+                    } else {
+                        Some(rest)
+                    }
+                } else {
+                    None
+                };
+                Command::Config { key, value }
+            }
             "add" | "new" => {
                 let mut tokens = remainder.split_whitespace();
                 let first = tokens.next().unwrap_or("class").to_lowercase();
@@ -192,6 +215,33 @@ mod tests {
             Command::Test {
                 node_id: Some("AuthService".to_string()),
                 input: Some("{\"user\":\"admin\"}".to_string()),
+            }
+        );
+        assert_eq!(
+            Command::parse("&agy review architecture"),
+            Command::Agy {
+                prompt: "review architecture".to_string()
+            }
+        );
+        assert_eq!(
+            Command::parse(":config provider openai"),
+            Command::Config {
+                key: Some("provider".to_string()),
+                value: Some("openai".to_string())
+            }
+        );
+        assert_eq!(
+            Command::parse(":cfg api_key sk-12345"),
+            Command::Config {
+                key: Some("api_key".to_string()),
+                value: Some("sk-12345".to_string())
+            }
+        );
+        assert_eq!(
+            Command::parse(":config"),
+            Command::Config {
+                key: None,
+                value: None
             }
         );
     }

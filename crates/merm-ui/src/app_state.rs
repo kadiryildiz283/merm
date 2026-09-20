@@ -1,8 +1,8 @@
 use merm_core::{
-    AdviceProposal, Advisor, ArchitectureGraph, AstRewriter, CheckReport, Command,
-    DiagramExtractor, ExecutionResult, LayoutDirection, LayoutEngine, NodeBinding, NodeKind,
-    NodeRunner, ProjectManifest, ReconciliationEngine, RenderedDiagram, RustScanner, Scaffolder,
-    ThemeId,
+    AdviceProposal, Advisor, AgyLlmProvider, ArchitectureGraph, AstRewriter, CheckReport, Command,
+    DiagramExtractor, ExecutionResult, LayoutDirection, LayoutEngine, LlmProvider, NodeBinding,
+    NodeKind, NodeRunner, ProjectManifest, ReconciliationEngine, RenderedDiagram, RustScanner,
+    Scaffolder, ThemeId,
 };
 use merm_ipc::EditorCommand;
 use merm_render::{BackendType, RenderEngine, Transform2D};
@@ -329,6 +329,186 @@ impl AppState {
                     self.status_message = "No project bound! Run `&set [PATH]` first.".to_string();
                 }
             }
+            Command::Agy { prompt } => {
+                if let Some(ref manifest) = self.manifest {
+                    let mut agy_manifest = manifest.clone();
+                    agy_manifest.settings.llm_provider = "agy".to_string();
+                    if let Some(ref w) = self.worker {
+                        self.is_busy = true;
+                        self.busy_message = "Querying Antigravity CLI (agy)...".to_string();
+                        self.status_message =
+                            format!("Invoking agy in background for '{}'...", prompt);
+                        let _ = w.dispatch(WorkerTask::Advice {
+                            manifest: agy_manifest,
+                            diagram_source: self.diagram_source.clone(),
+                            prompt,
+                        });
+                        return;
+                    }
+                    self.status_message = format!("Invoking agy for '{}'...", prompt);
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build();
+                    if let Ok(runtime) = rt {
+                        match runtime.block_on(Advisor::request_advice(
+                            &agy_manifest,
+                            &self.diagram_source,
+                            &prompt,
+                        )) {
+                            Ok(proposal) => {
+                                self.status_message =
+                                    "&agy advice ready. Type `&ok` to apply proposal.".to_string();
+                                self.report_content = Some(format!(
+                                    "=== Google Antigravity (AGY) Proposal ===\nQuery: {}\n\n{}\n\nType `&ok` to apply changes.",
+                                    proposal.prompt, proposal.analysis
+                                ));
+                                self.pending_advice = Some(proposal);
+                                self.modal.mode = UiMode::Report;
+                            }
+                            Err(e) => {
+                                self.status_message = format!("&agy failed: {}", e);
+                            }
+                        }
+                    }
+                } else {
+                    self.status_message = format!("Invoking agy on diagram for '{}'...", prompt);
+                    let agy = AgyLlmProvider::new(None);
+                    let system_prompt =
+                        "You are an expert systems architect analyzing a Mermaid diagram.";
+                    let user_prompt = format!(
+                        "Diagram:\n```mermaid\n{}\n```\n\nTask: {}\nProvide clean, architectural recommendations.",
+                        self.diagram_source, prompt
+                    );
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build();
+                    if let Ok(runtime) = rt {
+                        match runtime.block_on(agy.query(system_prompt, &user_prompt)) {
+                            Ok(ans) => {
+                                self.status_message = "&agy query completed.".to_string();
+                                self.report_content = Some(format!(
+                                    "=== Google Antigravity (AGY) Response ===\nQuery: {}\n\n{}",
+                                    prompt, ans
+                                ));
+                                self.modal.mode = UiMode::Report;
+                            }
+                            Err(e) => {
+                                self.status_message = format!("&agy failed: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
+            Command::Config { key, value } => {
+                if self.manifest.is_none() {
+                    let _ = self.bind_project(None);
+                }
+
+                if let Some(ref mut manifest) = self.manifest {
+                    match (key.as_deref(), value) {
+                        (None, _) | (Some("show"), _) | (Some("list"), _) => {
+                            let key_status = if let Some(ref k) = manifest.settings.llm_api_key {
+                                if k.len() > 8 {
+                                    format!(
+                                        "{}...{} ({} chars)",
+                                        &k[..4],
+                                        &k[k.len() - 4..],
+                                        k.len()
+                                    )
+                                } else {
+                                    "*** (Configured)".to_string()
+                                }
+                            } else {
+                                "[Not Set] (Set via :config api_key <key> or OPENAI_API_KEY env)"
+                                    .to_string()
+                            };
+
+                            let report = format!(
+                                "=== Project Configuration & LLM Settings ===\n\
+                                Project Name: {}\n\
+                                Project Root: {}\n\
+                                LLM Provider: {}\n\
+                                LLM Endpoint: {}\n\
+                                LLM Model:    {}\n\
+                                LLM API Key:  {}\n\
+                                Build Cmd:    {}\n\
+                                Test Cmd:     {}\n\n\
+                                Supported Providers:\n\
+                                  - 'agy' or 'antigravity' (Native Google Antigravity CLI integration)\n\
+                                  - 'openai' (Official OpenAI API or OpenAI-compatible endpoint)\n\
+                                  - 'ollama' (Local Ollama LLM server)\n\n\
+                                Usage:\n\
+                                  :config provider <agy|openai|ollama>\n\
+                                  :config api_key <YOUR_API_KEY>\n\
+                                  :config model <gpt-4o|qwen2.5-coder|inherit>\n\
+                                  :config endpoint <https://api.openai.com/v1>\n\
+                                  :config build <cargo check>\n\
+                                  :config test <cargo test>\n",
+                                manifest.project_name,
+                                manifest.project_root.display(),
+                                manifest.settings.llm_provider,
+                                manifest.settings.llm_endpoint,
+                                manifest.settings.llm_model,
+                                key_status,
+                                manifest.settings.build_command,
+                                manifest.settings.test_command
+                            );
+                            self.report_content = Some(report);
+                            self.status_message =
+                                format!("Config: provider={}", manifest.settings.llm_provider);
+                            self.modal.mode = UiMode::Report;
+                        }
+                        (Some("provider"), Some(v)) => {
+                            manifest.settings.llm_provider = v.clone();
+                            if v == "openai"
+                                && manifest.settings.llm_endpoint == "http://localhost:11434/v1"
+                            {
+                                manifest.settings.llm_endpoint =
+                                    "https://api.openai.com/v1".to_string();
+                                if manifest.settings.llm_model == "qwen2.5-coder" {
+                                    manifest.settings.llm_model = "gpt-4o-mini".to_string();
+                                }
+                            }
+                            let _ = manifest.save();
+                            self.status_message = format!("LLM provider set to '{}'", v);
+                        }
+                        (Some("api_key") | Some("key"), Some(v)) => {
+                            manifest.settings.llm_api_key = Some(v);
+                            let _ = manifest.save();
+                            self.status_message =
+                                "OpenAI / LLM API key updated successfully.".to_string();
+                        }
+                        (Some("model"), Some(v)) => {
+                            manifest.settings.llm_model = v.clone();
+                            let _ = manifest.save();
+                            self.status_message = format!("LLM model set to '{}'", v);
+                        }
+                        (Some("endpoint") | Some("url"), Some(v)) => {
+                            manifest.settings.llm_endpoint = v.clone();
+                            let _ = manifest.save();
+                            self.status_message = format!("LLM endpoint set to '{}'", v);
+                        }
+                        (Some("build"), Some(v)) => {
+                            manifest.settings.build_command = v.clone();
+                            let _ = manifest.save();
+                            self.status_message = format!("Build command set to '{}'", v);
+                        }
+                        (Some("test"), Some(v)) => {
+                            manifest.settings.test_command = v.clone();
+                            let _ = manifest.save();
+                            self.status_message = format!("Test command set to '{}'", v);
+                        }
+                        (Some(unknown), _) => {
+                            self.status_message = format!(
+                                "Unknown config key '{}'. Run :config to see options.",
+                                unknown
+                            );
+                        }
+                    }
+                } else {
+                    self.status_message = "Failed to load or bind project manifest.".to_string();
+                }
+            }
             Command::Add { kind, name } => {
                 self.add_node(kind, &name);
             }
@@ -352,6 +532,8 @@ Commands:
   &advice <PROMPT>           - Request architecture advice from LLM (read-only)
   &ok                        - Apply recommendations from &advice with rollback protection
   &ai <PROMPT>               - Autonomous multi-file generation/refactoring with verification
+  &agy <PROMPT>              - Invoke Google Antigravity CLI (agy) directly
+  :config [KEY] [VAL]        - View or update settings (provider, api_key, model, endpoint)
   :add <class|struct|enum> <Name> - Add new node to diagram & scaffold Rust file
   :connect <From> <To> [lbl] - Connect two diagram nodes with arrow
   :test [Node] [Input]       - Execute node test harness with input/output capture

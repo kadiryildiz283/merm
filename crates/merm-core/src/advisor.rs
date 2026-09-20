@@ -85,10 +85,7 @@ impl Advisor {
         manifest: &ProjectManifest,
         diagram_source: &str,
     ) -> Result<CheckReport, CoreError> {
-        let llm = LlmClient::new(
-            manifest.settings.llm_endpoint.clone(),
-            manifest.settings.llm_model.clone(),
-        );
+        let llm = LlmClient::from_settings(&manifest.settings);
         Self::run_check_with_provider(manifest, diagram_source, &llm).await
     }
 
@@ -156,10 +153,7 @@ impl Advisor {
         diagram_source: &str,
         user_prompt: &str,
     ) -> Result<AdviceProposal, CoreError> {
-        let llm = LlmClient::new(
-            manifest.settings.llm_endpoint.clone(),
-            manifest.settings.llm_model.clone(),
-        );
+        let llm = LlmClient::from_settings(&manifest.settings);
         Self::request_advice_with_provider(manifest, diagram_source, user_prompt, &llm).await
     }
 
@@ -250,10 +244,7 @@ Always structure your advice clearly with rationale and trade-offs."#;
         diagram_source: &str,
         user_prompt: &str,
     ) -> Result<(String, Option<String>), CoreError> {
-        let llm = LlmClient::new(
-            manifest.settings.llm_endpoint.clone(),
-            manifest.settings.llm_model.clone(),
-        );
+        let llm = LlmClient::from_settings(&manifest.settings);
         Self::execute_ai_with_provider(manifest, diagram_source, user_prompt, &llm).await
     }
 

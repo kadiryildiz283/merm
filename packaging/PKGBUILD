@@ -2,9 +2,9 @@
 pkgname=merm-bin
 pkgver=0.1.0
 pkgrel=1
-pkgdesc="Blazingly fast native Linux desktop viewer for Mermaid diagrams with Vim modal navigation and deep class diagram support"
+pkgdesc="Blazingly fast native Linux architecture studio & Mermaid viewer with Vim navigation, executable nodes, and Google Antigravity (AGY) integration"
 arch=('x86_64' 'aarch64')
-url="https://github.com/kadiryildiz/merm"
+url="https://github.com/kadiryildiz283/merm"
 license=('MIT' 'Apache-2.0')
 depends=('gcc-libs' 'glibc')
 makedepends=('cargo')

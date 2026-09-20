@@ -14,11 +14,11 @@ edition = "2021"
 rust-version = "1.80.0"
 authors = ["Kadir Yildiz <kadiry.ra@gmail.com>", "merm contributors"]
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/kadiryildiz/merm"
-homepage = "https://github.com/kadiryildiz/merm"
-description = "Blazingly fast native Linux desktop viewer for Mermaid diagrams with Vim modal navigation and deep class diagram support"
+repository = "https://github.com/kadiryildiz283/merm"
+homepage = "https://github.com/kadiryildiz283/merm"
+description = "Blazingly fast native Linux architecture studio & Mermaid viewer with Vim navigation, executable nodes, and Google Antigravity (AGY) integration"
 readme = "README.md"
-keywords = ["mermaid", "diagram", "viewer", "vim", "wayland"]
+keywords = ["mermaid", "diagram", "architecture", "vim", "antigravity"]
 categories = ["command-line-utilities", "development-tools", "visualization"]
 
 [workspace.dependencies]

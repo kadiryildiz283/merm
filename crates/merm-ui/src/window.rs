@@ -568,7 +568,7 @@ impl MermAppWindow {
                 ));
 
                 // Command Input Box with prompt and cursor
-                let input_w = (width as f32 - 440.0).max(220.0);
+                let input_w = (width as f32 - 465.0).max(180.0);
                 let input_box_h = 30.0;
                 let input_y = dock_y + 8.0;
                 svg.push_str(&format!(
@@ -577,22 +577,23 @@ impl MermAppWindow {
                 ));
 
                 let prompt_placeholder =
-                    ": / & Type command (&check, &ai, &advice, &set, :test, :add) or click... █";
+                    ": / & Commands (&check, &ai, &advice, &agy, &set, :cfg) or click... █";
                 svg.push_str(&format!(
                     r##"<text x="24" y="{}" fill="{}" font-family="monospace" font-size="12" font-weight="bold">{}</text>"##,
                     input_y + 19.0, palette.text_sub, escape_xml(prompt_placeholder)
                 ));
 
                 // Quick Action Pills
-                let pills_start_x = width as f32 - 415.0;
-                let pills: [(&str, f32, &str); 7] = [
-                    ("&check", 56.0, &palette.method_color),
-                    ("&ai", 40.0, &palette.stereotype_color),
-                    ("&advice", 64.0, &palette.text_main),
-                    ("&set", 48.0, &palette.var_color),
-                    (":test", 52.0, &palette.method_color),
-                    (":add", 48.0, &palette.text_main),
-                    (":help", 50.0, &palette.text_sub),
+                let pills_start_x = (width as f32 - 445.0).max(10.0);
+                let pills: [(&str, f32, &str); 8] = [
+                    ("&check", 54.0, &palette.method_color),
+                    ("&ai", 38.0, &palette.stereotype_color),
+                    ("&advice", 62.0, &palette.text_main),
+                    ("&agy", 48.0, &palette.type_color),
+                    ("&set", 46.0, &palette.var_color),
+                    (":test", 50.0, &palette.method_color),
+                    (":cfg", 44.0, &palette.text_sub),
+                    (":help", 48.0, &palette.text_sub),
                 ];
 
                 let mut cur_px = pills_start_x;
@@ -782,29 +783,33 @@ impl ApplicationHandler for MermAppWindow {
 
                     // 1. Check click on Bottom Command Dock
                     if win_h > 0 && cy >= (win_h as f64 - 46.0) {
-                        let pills_start_x = win_w as f64 - 415.0;
+                        let pills_start_x = (win_w as f64 - 445.0).max(10.0);
                         if cx >= pills_start_x {
                             let rel_x = cx - pills_start_x;
-                            if rel_x < 56.0 {
+                            if rel_x < 54.0 {
                                 // &check
                                 self.app_state.modal.mode = UiMode::Command;
                                 self.app_state.modal.command_buffer = "&check".to_string();
                                 self.app_state.handle_key_action(UiAction::ExecuteCommand(
                                     "&check".to_string(),
                                 ));
-                            } else if rel_x < 56.0 + 40.0 {
+                            } else if rel_x < 60.0 + 38.0 {
                                 // &ai
                                 self.app_state.modal.mode = UiMode::Command;
                                 self.app_state.modal.command_buffer = "&ai ".to_string();
-                            } else if rel_x < 56.0 + 40.0 + 64.0 {
+                            } else if rel_x < 104.0 + 62.0 {
                                 // &advice
                                 self.app_state.modal.mode = UiMode::Command;
                                 self.app_state.modal.command_buffer = "&advice ".to_string();
-                            } else if rel_x < 56.0 + 40.0 + 64.0 + 48.0 {
+                            } else if rel_x < 172.0 + 48.0 {
+                                // &agy
+                                self.app_state.modal.mode = UiMode::Command;
+                                self.app_state.modal.command_buffer = "&agy ".to_string();
+                            } else if rel_x < 226.0 + 46.0 {
                                 // &set
                                 self.app_state.modal.mode = UiMode::Command;
                                 self.app_state.modal.command_buffer = "&set ".to_string();
-                            } else if rel_x < 56.0 + 40.0 + 64.0 + 48.0 + 52.0 {
+                            } else if rel_x < 278.0 + 50.0 {
                                 // :test
                                 if self.app_state.active_node_id.is_some() {
                                     self.app_state.modal.mode = UiMode::NodeTest;
@@ -814,10 +819,13 @@ impl ApplicationHandler for MermAppWindow {
                                     self.app_state.modal.mode = UiMode::Command;
                                     self.app_state.modal.command_buffer = ":test ".to_string();
                                 }
-                            } else if rel_x < 56.0 + 40.0 + 64.0 + 48.0 + 52.0 + 48.0 {
-                                // :add
+                            } else if rel_x < 334.0 + 44.0 {
+                                // :cfg
                                 self.app_state.modal.mode = UiMode::Command;
-                                self.app_state.modal.command_buffer = ":add class ".to_string();
+                                self.app_state.modal.command_buffer = ":config".to_string();
+                                self.app_state.handle_key_action(UiAction::ExecuteCommand(
+                                    ":config".to_string(),
+                                ));
                             } else {
                                 // :help
                                 self.app_state.modal.mode = UiMode::Command;

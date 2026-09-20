@@ -2,12 +2,14 @@
 
 # `merm`
 
-### Blazingly Fast Native Linux Architecture Studio & Mermaid Diagram Viewer with Vim Modal Navigation, Project-Code Binding & Executable Nodes
+### Blazingly Fast Native Linux Architecture Studio & Mermaid Diagram Viewer with Vim Modal Navigation, Project-Code Binding, Executable Nodes & Google Antigravity (AGY) Integration
 
-[![CI](https://github.com/kadiryildiz/merm/actions/workflows/ci.yml/badge.svg)](https://github.com/kadiryildiz/merm/actions/workflows/ci.yml)
+[![CI](https://github.com/kadiryildiz283/merm/actions/workflows/ci.yml/badge.svg)](https://github.com/kadiryildiz283/merm/actions/workflows/ci.yml)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/License-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 [![Rust: 1.80+](https://img.shields.io/badge/Rust-1.80%2B-orange.svg)](https://www.rust-lang.org)
 [![Platform: Linux](https://img.shields.io/badge/Platform-Wayland%20%7C%20X11-purple.svg)](#-installation)
+[![LLM: AGY + OpenAI](https://img.shields.io/badge/AI-Antigravity%20(AGY)%20%7C%20OpenAI%20%7C%20Ollama-teal.svg)](#-llm-engines--google-antigravity-agy-binding)
+[![WGPU 120 FPS](https://img.shields.io/badge/Renderer-WGPU%20120%20FPS-green.svg)](#-why-merm)
 [![Themes: 8 Themes + Terminal Transparent](https://img.shields.io/badge/Themes-8%20Themes%20%2B%20Terminal%20Transparent-pink.svg)](#-designer-themes)
 
 <br/>
@@ -15,16 +17,16 @@
 ```text
        ┌────────────────────────┐
        │      merm (v0.1)       │◀─── High-Performance Native Rust Studio
-       └───┬──────────────┬─────┘
-           │              │
-           ▼              ▼
-     ┌───────────┐  ┌───────────┐
-     │  Diagram  │  │  Project  │
-     │  Mermaid  │◀─┼▶   Rust    │
-     │  Canvas   │  │   AST     │
-     └───────────┘  └───────────┘
-           │              │
-           ▼              ▼
+       └───┬───────────┬────┬───┘
+           │           │    │
+           ▼           ▼    ▼
+     ┌───────────┐   ┌────────────┐   ┌────────────────────────┐
+     │  Diagram  │   │  Project   │   │     AI Co-Architect    │
+     │  Mermaid  │◀─▶│    Rust    │◀─▶│  Google Antigravity    │
+     │  Canvas   │   │    AST     │   │  OpenAI / Ollama       │
+     └───────────┘   └────────────┘   └────────────────────────┘
+           │               │
+           ▼               ▼
     [ WGPU 120FPS ]  [ Executable Nodes ]
     Vector Studio    Input ➔ Run ➔ Output
 ```
@@ -40,15 +42,17 @@ Most existing Mermaid diagram tools rely on heavy web stacks: WebKitGTK wrappers
 **`merm`** is built from the ground up in safe, modern Rust for developers who live in terminal editors (Neovim, Helix, Kakoune) and want a **living, executable architecture canvas**:
 
 - 🚀 **Instant Launch:** Renders and opens in **<50ms** (`merm arch.md`, `merm .`, or `cat doc.md | merm -`).
-- 💎 **Zero WebKit / Electron:** 100% native Rust binary using `winit`, `resvg`, `softbuffer`, and `wgpu`.
-- 🎮 **120 FPS Fluid Interactivity:** Smooth GPU-accelerated canvas panning, zooming, and **interactive node drag-and-drop**.
+- 💎 **Zero WebKit / Electron:** 100% native safe Rust binary using `winit`, `resvg`, `softbuffer`, and hardware-accelerated `wgpu`.
+- 🤖 **Google Antigravity CLI (`agy`) Native Binding (`&agy`):** Deep integration with Google Antigravity CLI. Runs non-interactive architectural queries, intent reconstruction, and code reasoning directly from the in-app command bar.
+- 🔑 **OpenAI & Custom LLM Endpoint Support (`:config`):** Native API key authentication for OpenAI (`gpt-4o`, `gpt-4o-mini`), custom OpenAI-compatible endpoints (vLLM, Ollama, OpenRouter), and interactive runtime configuration.
+- 🎮 **120 FPS Fluid Interactivity:** Smooth GPU-accelerated canvas panning, zooming, and **interactive node drag-and-drop** with dynamic relation arrow recalculation.
 - 🔗 **Project-to-Diagram Binding (`&set`):** Binds your Mermaid diagram directly to a Rust project root (`<root>/.merm/manifest.json`). Every Rust file/module maps to an architecture class node!
 - ⚡ **Executable Diagram Nodes (`t` / `:test`):** Every class node in the diagram is executable! Enter input into the node harness drawer, press `Enter`, and observe real-time output, exit codes, execution duration, and stdout/stderr!
 - 🧪 **Deterministic & LLM Architecture Verification (`&check`):** Verifies full compatibility between your Rust codebase and diagram symbols via `syn` AST analysis and LLM validation.
 - 💡 **AI Architecture Advisor & Safe Mutations (`&advice` & `&ok`):** Request architectural recommendations (`&advice`). When you approve with `&ok`, `merm` creates atomic rollback snapshots in `.merm/snapshots/`, applies code/diagram changes, and verifies them with `cargo check`—rolling back automatically on error!
 - 🤖 **Autonomous Multi-File Refactoring (`&ai`):** Run full feature additions or refactorings with synchronized diagram and code updates.
-- 📐 **Deep UML Class & Struct Diagram Support:** Full 3-compartment UML cards with syntax-highlighted visibility tokens (`+`, `-`, `#`, `~`), types, variables, methods, comments, and stereotypes.
-- ⌨️ **Vim Modal Navigation & Command Bar:** Muscle-memory navigation with `hjkl`, `Tab` / `p` direction pivoting, `0` fit-to-view, `:` and `&` interactive command bar, and `a`/`o`/`c`/`e` node authoring.
+- 📐 **Deep UML Class & Struct Diagram Support:** Full 3-compartment UML cards with syntax-highlighted visibility tokens (`+`, `-`, `#`, `~`), types, variables, methods, comments, and stereotypes (`<<struct>>`, `<<enum>>`, `<<module>>`).
+- ⌨️ **Vim Modal Navigation & Command Bar:** Muscle-memory navigation with `hjkl`, `Tab` / `p` direction pivoting, `0` fit-to-view, `:` and `&` interactive command bar, and one-click quick action pills.
 - 🪟 **Terminal-First Transparent Mode:** Canvas transparency with Wayland alpha compositing (`with_transparent(true)`). No unwanted background is forced—your terminal's background, opacity (e.g. Ghostty `0.90`), blur, or desktop shows directly behind the diagram!
 - 🎨 **8 Designer Themes:** Catppuccin Mocha, Tokyo Night, Nord, Gruvbox Dark, Dracula, Monokai, Monokai Terminal, and Catppuccin Latte.
 - 🔌 **Bidirectional Editor IPC:** Real-time sync with Neovim (`merm.nvim`) via secure Unix Domain Sockets authenticated by the Linux kernel (`SO_PEERCRED`).
@@ -57,19 +61,67 @@ Most existing Mermaid diagram tools rely on heavy web stacks: WebKitGTK wrappers
 
 ## 🛠️ Interactive Command Protocol (`&` / `:` Prefix)
 
-Open the command bar anytime by pressing `:` or `&` in the GUI:
+Open the command bar anytime by pressing `:` or `&` in the GUI, or click any of the quick-action pills in the bottom dock:
 
-| Command | Description |
-| :--- | :--- |
-| `&set [PATH]` | Binds the current Mermaid diagram to a target Rust project root (creates/loads `.merm/manifest.json` and maps symbols). |
-| `&check` | Tests compatibility between the project and diagram using `syn` AST inspection, `cargo check`, and LLM critique. Displays a full diagnostic report modal. |
-| `&advice <QUERY>` | Asks the LLM for architectural advice or refactoring strategy (read-only proposal preview). |
-| `&ok` | Applies the pending recommendation from `&advice`. Creates an atomic rollback backup in `.merm/snapshots/`, applies mutations, and verifies build. |
-| `&ai <PROMPT>` | Autonomous multi-file code generation and diagram update with automatic build verification and rollback protection. |
-| `:add <class\|struct\|enum> <Name>` | Adds a new node to the diagram and automatically scaffolds the corresponding Rust module (`src/<name>.rs`) with executable entrypoints. |
-| `:connect <From> <To> [label]` | Adds a dependency arrow/relation between two nodes in the diagram. |
-| `:test [Node] [Input]` | Opens the interactive Node Test drawer for the target or currently selected node. |
-| `:help` | Opens the in-app interactive command and keybinding reference. |
+| Command | Shortcut / Pill | Description |
+| :--- | :---: | :--- |
+| `&agy <PROMPT>` | `&agy` | Invokes Google Antigravity CLI (`agy`) directly on the project and diagram. |
+| `&check` | `&check` | Tests compatibility between the project and diagram using `syn` AST inspection, `cargo check`, and LLM critique. Displays a full diagnostic report modal. |
+| `&ai <PROMPT>` | `&ai` | Autonomous multi-file code generation and diagram update with automatic build verification and rollback protection. |
+| `&advice <QUERY>` | `&advice` | Asks the LLM for architectural advice or refactoring strategy (read-only proposal preview). |
+| `&ok` | — | Applies the pending recommendation from `&advice`. Creates an atomic rollback backup in `.merm/snapshots/`, applies mutations, and verifies build. |
+| `&set [PATH]` | `&set` | Binds the current Mermaid diagram to a target Rust project root (creates/loads `.merm/manifest.json` and maps symbols). |
+| `:test [Node] [Input]` | `:test` | Opens the interactive Node Test drawer for the target or currently selected node. |
+| `:config [KEY] [VAL]` | `:cfg` | Views or updates LLM provider, API keys, models, and endpoints (e.g., `:config provider agy`, `:config api_key sk-...`). |
+| `:add <kind> <Name>` | `:add` | Adds a new node to the diagram and automatically scaffolds the corresponding Rust module (`src/<name>.rs`) with executable entrypoints. |
+| `:connect <A> <B> [label]` | — | Adds a dependency arrow/relation between two nodes in the diagram. |
+| `:help` | `:help` | Opens the in-app interactive command and keybinding reference. |
+
+---
+
+## 🤖 LLM Engines & Google Antigravity (`agy`) Binding
+
+`merm` supports three primary LLM backends:
+
+```text
+               ┌───────────────────────┐
+               │    merm LLM Client    │
+               └───┬────────┬────────┬─┘
+                   │        │        │
+         ┌─────────┘        │        └──────────┐
+         ▼                  ▼                   ▼
+┌──────────────────┐ ┌─────────────┐ ┌────────────────────┐
+│ Google           │ │ Official    │ │ Local Ollama       │
+│ Antigravity CLI  │ │ OpenAI API  │ │ or OpenAI-         │
+│ (agy)            │ │ (gpt-4o)    │ │ Compatible Server  │
+└──────────────────┘ └─────────────┘ └────────────────────┘
+```
+
+### 1. Google Antigravity CLI (`agy`)
+When `agy` is installed on your system (in `PATH` or `~/.local/bin/agy`), `merm` automatically detects it and sets it as the default LLM provider!
+- Query AGY directly from the canvas: `&agy analyze coupling between auth and billing`
+- Use AGY for full compatibility checks (`&check`), architectural proposals (`&advice`), and autonomous refactoring (`&ai`).
+
+### 2. OpenAI API (`OPENAI_API_KEY`)
+You can supply your OpenAI API key in three convenient ways:
+1. **Environment Variable:** `export OPENAI_API_KEY="sk-..."`
+2. **Project `.env` file:** Place `OPENAI_API_KEY=sk-...` in your project root.
+3. **In-App Interactive Config:**
+   ```text
+   :config provider openai
+   :config api_key sk-your-api-key-here
+   :config model gpt-4o
+   ```
+
+### 3. Local Ollama or Custom Endpoints
+Works seamlessly with local models like `qwen2.5-coder`, `deepseek-coder`, or `llama3`:
+```text
+:config provider ollama
+:config endpoint http://localhost:11434/v1
+:config model qwen2.5-coder
+```
+
+To view current settings at any time, run `:config` or click the `:cfg` pill!
 
 ---
 
@@ -84,13 +136,21 @@ When a Rust project is bound to `merm`:
    - **Run:** Press `Enter` to run the node through `merm`'s test harness.
    - **Output:** Live display of execution status (`✔ PASS` / `✖ FAIL`), duration (e.g. `12ms`), output payload, and full stdout/stderr!
 
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│ 🚀 Test Node Harness: <AuthService>                                    │
+│ Input: {"username": "admin", "role": "superuser"}                      │
+│ Status: SUCCESS (0) | Duration: 4ms | Payload: "Token issued: jwt.xyz" │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
 ---
 
 ## ⌨️ Modal Controls & Keybindings
 
 | Key | Mode | Action |
 | :--- | :--- | :--- |
-| `:` or `&` | Normal | Open interactive command bar (`&set`, `&check`, `&advice`, `&ok`, `&ai`, etc.) |
+| `:` or `&` | Normal | Open interactive command bar (`&agy`, `&check`, `&advice`, `&ok`, `&ai`, `:config`, etc.) |
 | `t` | Normal (Node selected) | Open Node Test drawer for selected class |
 | `i` or `K` | Normal (Node selected) | Open Node Inspector modal (type, file binding, fields, methods, relations, test status) |
 | `T` | Normal | Cycle color themes (Mocha → Tokyo Night → Nord → Gruvbox → Dracula → Monokai → Terminal → Latte) |
@@ -137,7 +197,7 @@ makepkg -si
 
 ### From Source (Cargo)
 ```bash
-git clone https://github.com/kadiryildiz/merm.git
+git clone https://github.com/kadiryildiz283/merm.git
 cd merm
 cargo build --release --locked
 install -Dm755 target/release/merm ~/.local/bin/merm
@@ -186,7 +246,7 @@ install -Dm644 packaging/merm.svg ~/.local/share/icons/hicolor/scalable/apps/mer
 ```lua
 -- lazy.nvim specification
 {
-  "kadiryildiz/merm",
+  "kadiryildiz283/merm",
   ft = { "markdown", "mermaid" },
   config = function()
     local merm = require("merm")
@@ -210,9 +270,9 @@ install -Dm644 packaging/merm.svg ~/.local/share/icons/hicolor/scalable/apps/mer
 merm/
 ├── Cargo.toml               # Workspace manifest with dual MIT/Apache-2.0 licenses
 ├── crates/
-│   ├── merm-core/           # AST parser, syn Rust scanner, manifest, node runner, advisor, transactions
+│   ├── merm-core/           # AST parser, syn Rust scanner, manifest, node runner, advisor, AGY & OpenAI client
 │   ├── merm-render/         # WGPU pipeline, SIMD SvgRasterizer, alpha compositing overlay
-│   ├── merm-ui/             # winit 0.30, softbuffer, modal controller, vector overlay widgets
+│   ├── merm-ui/             # winit 0.30, softbuffer, modal controller, vector overlay widgets, command dock
 │   ├── merm-ipc/            # SO_PEERCRED authenticated Unix socket server
 │   └── merm-cli/            # Binary entry point, CLI arguments, and config loader
 ├── editors/
@@ -227,7 +287,7 @@ merm/
 
 ---
 
-## 🤝 Contributing & Standards
+## 🤝 Contributing & Quality Verification
 
 All code is 100% safe Rust, formatted with `cargo fmt`, and passes strict linter verification:
 

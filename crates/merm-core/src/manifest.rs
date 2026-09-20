@@ -19,23 +19,100 @@ pub struct NodeBinding {
     pub output_type: Option<String>,
 }
 
+pub fn which_agy_available() -> bool {
+    if let Ok(path) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path) {
+            if dir.join("agy").is_file() {
+                return true;
+            }
+        }
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        if Path::new(&home).join(".local/bin/agy").is_file() {
+            return true;
+        }
+    }
+    false
+}
+
+pub fn read_env_val(root: &Path, key: &str) -> Option<String> {
+    if let Ok(val) = std::env::var(key) {
+        if !val.trim().is_empty() {
+            return Some(val);
+        }
+    }
+    let env_file = root.join(".env");
+    if let Ok(content) = fs::read_to_string(env_file) {
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with('#') || !line.contains('=') {
+                continue;
+            }
+            let mut parts = line.splitn(2, '=');
+            let k = parts.next()?.trim();
+            let v = parts.next()?.trim().trim_matches('"').trim_matches('\'');
+            if k == key && !v.is_empty() {
+                return Some(v.to_string());
+            }
+        }
+    }
+    None
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ProjectSettings {
     pub llm_provider: String,
     pub llm_endpoint: String,
     pub llm_model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub llm_api_key: Option<String>,
     pub build_command: String,
     pub test_command: String,
 }
 
 impl Default for ProjectSettings {
     fn default() -> Self {
+        Self::for_root(Path::new("."))
+    }
+}
+
+impl ProjectSettings {
+    pub fn for_root(root: &Path) -> Self {
+        let api_key =
+            read_env_val(root, "OPENAI_API_KEY").or_else(|| read_env_val(root, "MERM_LLM_API_KEY"));
+
+        let provider_env = read_env_val(root, "MERM_LLM_PROVIDER");
+
+        let default_provider = if let Some(p) = provider_env {
+            p
+        } else if which_agy_available() {
+            "agy".to_string()
+        } else if api_key.is_some() {
+            "openai".to_string()
+        } else {
+            "ollama".to_string()
+        };
+
+        let default_endpoint = if default_provider == "openai" {
+            "https://api.openai.com/v1".to_string()
+        } else {
+            read_env_val(root, "MERM_LLM_ENDPOINT")
+                .unwrap_or_else(|| "http://localhost:11434/v1".to_string())
+        };
+
+        let default_model = if default_provider == "openai" {
+            read_env_val(root, "OPENAI_MODEL").unwrap_or_else(|| "gpt-4o-mini".to_string())
+        } else if default_provider == "agy" {
+            read_env_val(root, "AGY_MODEL").unwrap_or_else(|| "inherit".to_string())
+        } else {
+            read_env_val(root, "MERM_LLM_MODEL").unwrap_or_else(|| "qwen2.5-coder".to_string())
+        };
+
         Self {
-            llm_provider: "ollama".to_string(),
-            llm_endpoint: std::env::var("MERM_LLM_ENDPOINT")
-                .unwrap_or_else(|_| "http://localhost:11434/v1".to_string()),
-            llm_model: std::env::var("MERM_LLM_MODEL")
-                .unwrap_or_else(|_| "qwen2.5-coder".to_string()),
+            llm_provider: default_provider,
+            llm_endpoint: default_endpoint,
+            llm_model: default_model,
+            llm_api_key: api_key,
             build_command: "cargo check".to_string(),
             test_command: "cargo test".to_string(),
         }
@@ -54,13 +131,14 @@ pub struct ProjectManifest {
 
 impl ProjectManifest {
     pub fn new(root: PathBuf, name: String) -> Self {
+        let settings = ProjectSettings::for_root(&root);
         Self {
             version: 1,
             project_name: name,
             project_root: root,
             entry_diagram: None,
             bindings: HashMap::new(),
-            settings: ProjectSettings::default(),
+            settings,
         }
     }
 
@@ -99,9 +177,13 @@ impl ProjectManifest {
             let content = fs::read_to_string(&m_path).map_err(|e| {
                 CoreError::LayoutFailed(format!("Failed to read .merm/manifest.json: {}", e))
             })?;
-            let manifest: ProjectManifest = serde_json::from_str(&content).map_err(|e| {
+            let mut manifest: ProjectManifest = serde_json::from_str(&content).map_err(|e| {
                 CoreError::LayoutFailed(format!("Failed to parse .merm/manifest.json: {}", e))
             })?;
+            if manifest.settings.llm_api_key.is_none() {
+                manifest.settings.llm_api_key = read_env_val(root, "OPENAI_API_KEY")
+                    .or_else(|| read_env_val(root, "MERM_LLM_API_KEY"));
+            }
             Ok(manifest)
         } else {
             let name = root
