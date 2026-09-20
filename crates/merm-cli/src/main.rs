@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::mpsc::channel;
 
-use merm_core::ThemeId;
+use merm_core::{ProjectManifest, RustScanner, ThemeId};
 use merm_ipc::IpcServer;
 use merm_ui::{AppState, MermAppWindow};
 
@@ -201,46 +201,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let content = match file_path.as_deref() {
         Some("-") | None => {
             if atty_is_terminal() {
-                // Interactive fallback sample if run without input in terminal
-                r#"classDiagram
+                // Check if current directory or any ancestor is inside a Cargo project
+                let curr_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                if let Some(cargo_root) = ProjectManifest::detect_cargo_root(&curr_dir) {
+                    bound_dir = Some(cargo_root.to_string_lossy().to_string());
+                    if let Ok(scan_report) = RustScanner::scan_project(&cargo_root) {
+                        RustScanner::generate_mermaid_class_diagram(&scan_report)
+                    } else {
+                        format!(
+                            "classDiagram\n    direction TD\n    class {} {{\n        <<project>>\n        +run()\n    }}\n",
+                            cargo_root.file_name().and_then(|s| s.to_str()).unwrap_or("Project")
+                        )
+                    }
+                } else {
+                    // Not in a Cargo project: display rich, interactive Welcome & Architecture Guide
+                    r#"classDiagram
     direction LR
 
-    %% High-throughput payment processing engine
-    class PaymentService {
-        <<service>>
-        -ApiKey apiKey // Encrypted API bearer token
-        -SecretKey secretKey // HMAC-SHA256 signature key
-        #u32 retryCount // Exponential backoff retries
-        +bool isLiveMode // Production environment flag
-        +processPayment(Order order) PaymentResult // Authorizes and captures funds
-        +refund(String transactionId, f64 amount) bool // Partial or full refund
-        #validateToken(Token token) bool
+    %% Welcome to Merm - Native Linux Architecture Development Tool
+    class MermProject {
+        <<active>>
+        +String status // Connected & Ready
+        +runCommand(String cmd)
+        +executeNodeTest()
     }
 
-    %% Core customer profile and ledger account
-    class CustomerAccount {
-        <<entity>>
-        +String customerId // Unique UUID v4
-        +String emailAddress // Primary billing contact
-        -f64 accountBalance // Available liquid balance
-        #bool isVerified // KYC verification status
-        +depositFunds(f64 amount) bool // Credits user account
-        +withdrawFunds(f64 amount) bool // Debits user account
+    %% AI Architectural Advisor & Automation Commands
+    class AIAdvisor {
+        <<ai-service>>
+        +&check() : Verify diagram vs Rust AST with AI
+        +&ai(prompt) : Mutate codebase and diagram via AI
+        +&advice() : Request architectural advice
+        +&ok() : Apply recommended AI advice
     }
 
-    %% Immutable settlement transaction record
-    class TransactionRecord {
-        <<struct>>
-        +String transactionId // Monotonic sequence ID
-        +f64 settledAmount // Settled currency value
-        +String statusCode // SUCCESS, PENDING, FAILED
-        +recordAuditLog() void // Emits audit log to Kafka
+    %% Project Binding & Executable Nodes
+    class WorkspaceEngine {
+        <<runtime>>
+        +&set(path) : Bind Cargo project to live Mermaid
+        +:test(node, input) : Run executable test harness (Key: 't')
+        +:add(class) : Scaffolds new struct & file (Key: 'a')
+        +:connect(from, to) : Link architectural relations
     }
 
-    PaymentService ..> CustomerAccount : manages
-    CustomerAccount *-- TransactionRecord : holds
+    MermProject ..> AIAdvisor : queries
+    MermProject *-- WorkspaceEngine : executes
 "#
-                .to_string()
+                    .to_string()
+                }
             } else {
                 let mut buffer = String::new();
                 io::stdin().read_to_string(&mut buffer)?;
@@ -250,9 +258,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(path) => {
             let p = std::path::Path::new(path);
             if p.is_dir() {
-                bound_dir = Some(path.to_string());
-                "classDiagram\n".to_string()
+                if let Some(cargo_root) = ProjectManifest::detect_cargo_root(p) {
+                    bound_dir = Some(cargo_root.to_string_lossy().to_string());
+                    if let Ok(scan_report) = RustScanner::scan_project(&cargo_root) {
+                        RustScanner::generate_mermaid_class_diagram(&scan_report)
+                    } else {
+                        format!(
+                            "classDiagram\n    direction TD\n    class {} {{\n        <<project>>\n        +run()\n    }}\n",
+                            cargo_root.file_name().and_then(|s| s.to_str()).unwrap_or("Project")
+                        )
+                    }
+                } else {
+                    bound_dir = Some(path.to_string());
+                    "classDiagram\n".to_string()
+                }
             } else {
+                if let Some(cargo_root) = ProjectManifest::detect_cargo_root(p) {
+                    bound_dir = Some(cargo_root.to_string_lossy().to_string());
+                }
                 fs::read_to_string(path)?
             }
         }

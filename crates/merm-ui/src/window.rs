@@ -62,12 +62,7 @@ impl MermAppWindow {
 
         let (watcher_tx, watcher_rx) = std::sync::mpsc::channel();
         let watcher = if let Some(ref m) = app_state.manifest {
-            let src_dir = m.project_root.join("src");
-            if src_dir.exists() {
-                ProjectWatcher::new(&src_dir, watcher_tx).ok()
-            } else {
-                None
-            }
+            ProjectWatcher::new(&m.project_root, watcher_tx).ok()
         } else {
             None
         };
@@ -193,28 +188,91 @@ impl MermAppWindow {
             width, height, width, height
         ));
 
-        // 1. Bottom HUD / Command bar
+        // 1. Top Header Bar
+        let top_h = 32.0;
+        svg.push_str(&format!(
+            r##"<rect x="0" y="0" width="{}" height="{}" fill="{}" opacity="0.95"/>"##,
+            width, top_h, palette.card_bg
+        ));
+        svg.push_str(&format!(
+            r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
+            top_h, width, top_h, palette.badge_bg
+        ));
+
+        // Brand + Project info
+        let project_badge = if let Some(ref m) = app_state.manifest {
+            format!(
+                "⚡ MERM | Project: {} ({} bound classes)",
+                m.project_name,
+                m.bindings.len()
+            )
+        } else {
+            "⚡ MERM | [No project bound - run &set to connect]".to_string()
+        };
+        svg.push_str(&format!(
+            r##"<text x="14" y="21" fill="{}" font-family="monospace" font-size="12" font-weight="bold">{}</text>"##,
+            palette.method_color, escape_xml(&project_badge)
+        ));
+
+        // Active node indicator in top bar
+        if let Some(ref sel_id) = app_state.active_node_id {
+            svg.push_str(&format!(
+                r##"<text x="420" y="21" fill="{}" font-family="monospace" font-size="12">🎯 Active: &lt;{}&gt; [t: Test | i: Inspect | e: Edit]</text>"##,
+                palette.stereotype_color, escape_xml(sel_id)
+            ));
+        }
+
+        // Right side indicators (Direction, Theme, Mode)
+        let dir_str = app_state.active_direction.as_str();
+        let theme_str = app_state.theme.palette().name;
+        let mode_badge = match app_state.modal.mode {
+            UiMode::Normal => "NORMAL",
+            UiMode::Command => "COMMAND",
+            UiMode::NodeTest => "TEST",
+            UiMode::Inspector => "INSPECT",
+            UiMode::Report => "REPORT",
+            UiMode::Search => "SEARCH",
+            _ => "VIEW",
+        };
+        let right_header = format!(
+            "Dir: [{}] ('p') | Theme: [{}] ('T') | [{}]",
+            dir_str, theme_str, mode_badge
+        );
+        svg.push_str(&format!(
+            r##"<text x="{}" y="21" fill="{}" font-family="monospace" font-size="11" text-anchor="end">{}</text>"##,
+            width as f32 - 14.0, palette.text_sub, escape_xml(&right_header)
+        ));
+
+        // 2. Bottom Command Dock / Modals
         match app_state.modal.mode {
             UiMode::Command => {
-                let bar_h = 36.0;
-                let bar_y = height as f32 - bar_h;
+                let dock_h = 46.0;
+                let dock_y = height as f32 - dock_h;
                 svg.push_str(&format!(
-                    r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}" opacity="0.95"/>"##,
-                    bar_y, width, bar_h, palette.card_bg
+                    r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}" opacity="0.98"/>"##,
+                    dock_y, width, dock_h, palette.card_bg
                 ));
                 svg.push_str(&format!(
-                    r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
-                    bar_y, width, bar_y, palette.badge_bg
+                    r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="2"/>"##,
+                    dock_y, width, dock_y, palette.method_color
+                ));
+
+                let input_w = (width as f32 - 250.0).max(200.0);
+                let input_box_h = 32.0;
+                let input_y = dock_y + 7.0;
+                svg.push_str(&format!(
+                    r##"<rect x="12" y="{}" width="{}" height="{}" rx="6" fill="{}" stroke="{}" stroke-width="1.8"/>"##,
+                    input_y, input_w, input_box_h, palette.background, palette.method_color
                 ));
 
                 let cmd_text = format!("{}█", escape_xml(&app_state.modal.command_buffer));
                 svg.push_str(&format!(
-                    r##"<text x="16" y="{}" fill="{}" font-family="monospace" font-size="14" font-weight="bold">{}</text>"##,
-                    bar_y + 23.0, palette.text_main, cmd_text
+                    r##"<text x="24" y="{}" fill="{}" font-family="monospace" font-size="14" font-weight="bold">{}</text>"##,
+                    input_y + 21.0, palette.text_main, cmd_text
                 ));
                 svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12" text-anchor="end">Enter: Run | Esc: Cancel</text>"##,
-                    width as f32 - 16.0, bar_y + 23.0, palette.text_sub
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12" text-anchor="end">[Enter] Run  |  [Esc] Cancel</text>"##,
+                    width as f32 - 16.0, dock_y + 28.0, palette.text_sub
                 ));
             }
             UiMode::NodeTest => {
@@ -497,29 +555,61 @@ impl MermAppWindow {
                 ));
             }
             _ => {
-                // Normal mode HUD bar at bottom
-                let bar_h = 30.0;
-                let bar_y = height as f32 - bar_h;
+                // Normal mode Command Dock (Height: 46px)
+                let dock_h = 46.0;
+                let dock_y = height as f32 - dock_h;
                 svg.push_str(&format!(
                     r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}" opacity="0.95"/>"##,
-                    bar_y, width, bar_h, palette.card_bg
+                    dock_y, width, dock_h, palette.card_bg
                 ));
                 svg.push_str(&format!(
-                    r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
-                    bar_y, width, bar_y, palette.badge_bg
+                    r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1.5"/>"##,
+                    dock_y, width, dock_y, palette.badge_bg
                 ));
 
-                let status_line = escape_xml(&app_state.hud_status());
+                // Command Input Box with prompt and cursor
+                let input_w = (width as f32 - 440.0).max(220.0);
+                let input_box_h = 30.0;
+                let input_y = dock_y + 8.0;
                 svg.push_str(&format!(
-                    r##"<text x="14" y="{}" fill="{}" font-family="monospace" font-size="12" font-weight="bold">{}</text>"##,
-                    bar_y + 19.0, palette.text_main, status_line
+                    r##"<rect x="12" y="{}" width="{}" height="{}" rx="6" fill="{}" stroke="{}" stroke-width="1.2"/>"##,
+                    input_y, input_w, input_box_h, palette.background, palette.badge_bg
                 ));
 
-                let hints = ":/& Command | t Test Node | Tab Pivot | a Add | e Edit";
+                let prompt_placeholder =
+                    ": / & Type command (&check, &ai, &advice, &set, :test, :add) or click... █";
                 svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">{}</text>"##,
-                    width as f32 - 14.0, bar_y + 19.0, palette.text_sub, hints
+                    r##"<text x="24" y="{}" fill="{}" font-family="monospace" font-size="12" font-weight="bold">{}</text>"##,
+                    input_y + 19.0, palette.text_sub, escape_xml(prompt_placeholder)
                 ));
+
+                // Quick Action Pills
+                let pills_start_x = width as f32 - 415.0;
+                let pills: [(&str, f32, &str); 7] = [
+                    ("&check", 56.0, &palette.method_color),
+                    ("&ai", 40.0, &palette.stereotype_color),
+                    ("&advice", 64.0, &palette.text_main),
+                    ("&set", 48.0, &palette.var_color),
+                    (":test", 52.0, &palette.method_color),
+                    (":add", 48.0, &palette.text_main),
+                    (":help", 50.0, &palette.text_sub),
+                ];
+
+                let mut cur_px = pills_start_x;
+                for (label, p_w, color) in pills {
+                    if cur_px + p_w > width as f32 - 8.0 {
+                        break;
+                    }
+                    svg.push_str(&format!(
+                        r##"<rect x="{}" y="{}" width="{}" height="28" rx="5" fill="{}" stroke="{}" stroke-width="1"/>"##,
+                        cur_px, input_y + 1.0, p_w, palette.badge_bg, color
+                    ));
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" font-weight="bold" text-anchor="middle">{}</text>"##,
+                        cur_px + p_w / 2.0, input_y + 18.0, color, label
+                    ));
+                    cur_px += p_w + 6.0;
+                }
             }
         }
 
@@ -688,6 +778,70 @@ impl ApplicationHandler for MermAppWindow {
             } => {
                 if state == ElementState::Pressed {
                     let (cx, cy) = self.last_cursor_pos.unwrap_or((640.0, 360.0));
+                    let (win_w, win_h) = self.current_surface_size;
+
+                    // 1. Check click on Bottom Command Dock
+                    if win_h > 0 && cy >= (win_h as f64 - 46.0) {
+                        let pills_start_x = win_w as f64 - 415.0;
+                        if cx >= pills_start_x {
+                            let rel_x = cx - pills_start_x;
+                            if rel_x < 56.0 {
+                                // &check
+                                self.app_state.modal.mode = UiMode::Command;
+                                self.app_state.modal.command_buffer = "&check".to_string();
+                                self.app_state.handle_key_action(UiAction::ExecuteCommand(
+                                    "&check".to_string(),
+                                ));
+                            } else if rel_x < 56.0 + 40.0 {
+                                // &ai
+                                self.app_state.modal.mode = UiMode::Command;
+                                self.app_state.modal.command_buffer = "&ai ".to_string();
+                            } else if rel_x < 56.0 + 40.0 + 64.0 {
+                                // &advice
+                                self.app_state.modal.mode = UiMode::Command;
+                                self.app_state.modal.command_buffer = "&advice ".to_string();
+                            } else if rel_x < 56.0 + 40.0 + 64.0 + 48.0 {
+                                // &set
+                                self.app_state.modal.mode = UiMode::Command;
+                                self.app_state.modal.command_buffer = "&set ".to_string();
+                            } else if rel_x < 56.0 + 40.0 + 64.0 + 48.0 + 52.0 {
+                                // :test
+                                if self.app_state.active_node_id.is_some() {
+                                    self.app_state.modal.mode = UiMode::NodeTest;
+                                    self.app_state
+                                        .handle_key_action(UiAction::SetMode(UiMode::NodeTest));
+                                } else {
+                                    self.app_state.modal.mode = UiMode::Command;
+                                    self.app_state.modal.command_buffer = ":test ".to_string();
+                                }
+                            } else if rel_x < 56.0 + 40.0 + 64.0 + 48.0 + 52.0 + 48.0 {
+                                // :add
+                                self.app_state.modal.mode = UiMode::Command;
+                                self.app_state.modal.command_buffer = ":add class ".to_string();
+                            } else {
+                                // :help
+                                self.app_state.modal.mode = UiMode::Command;
+                                self.app_state.modal.command_buffer = ":help".to_string();
+                                self.app_state.handle_key_action(UiAction::ExecuteCommand(
+                                    ":help".to_string(),
+                                ));
+                            }
+                        } else {
+                            // Clicked command input box
+                            self.app_state.modal.mode = UiMode::Command;
+                            if self.app_state.modal.command_buffer.is_empty() {
+                                self.app_state.modal.command_buffer = ":".to_string();
+                            }
+                        }
+
+                        if let Some(ref w) = self.window {
+                            let title = format!("merm | {}", self.app_state.hud_status());
+                            w.set_title(&title);
+                            w.request_redraw();
+                        }
+                        return;
+                    }
+
                     let (world_x, world_y) = self
                         .app_state
                         .transform

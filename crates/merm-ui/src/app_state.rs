@@ -73,10 +73,7 @@ impl AppState {
         // Try detecting current directory as a Rust project automatically
         if let Ok(curr) = env::current_dir() {
             if let Some(cargo_root) = ProjectManifest::detect_cargo_root(&curr) {
-                if let Ok(man) = ProjectManifest::load_or_init(&cargo_root) {
-                    state.status_message = format!("Auto-bound to project: {}", man.project_name);
-                    state.manifest = Some(man);
-                }
+                let _ = state.bind_project(Some(cargo_root.to_str().unwrap_or(".")));
             }
         }
 
@@ -146,9 +143,13 @@ impl AppState {
             }
             let _ = manifest.save();
 
-            // If current diagram is empty or minimal, populate with scanned class diagram
-            if self.diagram_source.trim().is_empty() || self.diagram_source.trim() == "classDiagram"
-            {
+            // If current diagram is empty, minimal, or old sample, populate with scanned class diagram
+            let is_sample_or_empty = self.diagram_source.contains("PaymentService")
+                || self.diagram_source.contains("WelcomeToMerm")
+                || self.diagram_source.trim().is_empty()
+                || self.diagram_source.trim() == "classDiagram";
+
+            if is_sample_or_empty {
                 self.diagram_source = RustScanner::generate_mermaid_class_diagram(&scan_report);
                 self.recalculate_diagram();
             }

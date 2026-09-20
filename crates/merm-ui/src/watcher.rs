@@ -57,9 +57,15 @@ impl ProjectWatcher {
                         if is_mutation {
                             for path in event.paths {
                                 if path.extension().and_then(|s| s.to_str()) == Some("rs") {
-                                    pending_paths.push(path);
-                                    last_change = Instant::now();
-                                    has_pending = true;
+                                    let path_str = path.to_string_lossy();
+                                    if !path_str.contains("/target/")
+                                        && !path_str.contains("/.git/")
+                                        && !path_str.contains("/.merm/")
+                                    {
+                                        pending_paths.push(path);
+                                        last_change = Instant::now();
+                                        has_pending = true;
+                                    }
                                 }
                             }
                         }

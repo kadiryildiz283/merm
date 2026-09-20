@@ -64,14 +64,6 @@ pub struct RustScanner;
 
 impl RustScanner {
     pub fn scan_project(root: &Path) -> Result<ProjectScanReport, CoreError> {
-        let src_dir = root.join("src");
-        if !src_dir.exists() {
-            return Err(CoreError::LayoutFailed(format!(
-                "Directory does not contain a 'src' folder: {:?}",
-                root
-            )));
-        }
-
         let mut report = ProjectScanReport {
             root: root.to_path_buf(),
             symbols: Vec::new(),
@@ -79,7 +71,17 @@ impl RustScanner {
         };
 
         let mut rs_files = Vec::new();
-        Self::collect_rs_files(&src_dir, &mut rs_files)?;
+        Self::collect_rs_files(root, &mut rs_files)?;
+
+        if rs_files.is_empty() {
+            return Err(CoreError::LayoutFailed(format!(
+                "No Rust source files (.rs) found in project {:?}",
+                root
+            )));
+        }
+
+        // Sort files for deterministic ordering
+        rs_files.sort();
 
         for file_path in rs_files {
             let rel_path = file_path
@@ -106,9 +108,22 @@ impl RustScanner {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
+                    let dir_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                    // Skip hidden directories, target, node_modules, build, packaging
+                    if dir_name.starts_with('.')
+                        || dir_name == "target"
+                        || dir_name == "node_modules"
+                        || dir_name == "build"
+                        || dir_name == "packaging"
+                    {
+                        continue;
+                    }
                     Self::collect_rs_files(&path, files)?;
                 } else if path.extension().is_some_and(|ext| ext == "rs") {
-                    files.push(path);
+                    let f_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                    if !f_name.starts_with("merm_exec_") {
+                        files.push(path);
+                    }
                 }
             }
         }
@@ -427,6 +442,43 @@ impl RustScanner {
             lines.push("".to_string());
         }
 
+        let mut known_symbols: HashSet<String> = HashSet::new();
+        for sym in &report.symbols {
+            known_symbols.insert(sym.name.clone());
+        }
+
+        // Infer relations between classes
+        let mut seen_edges: HashSet<(String, String)> = HashSet::new();
+        for sym in &report.symbols {
+            for f in &sym.fields {
+                for other in &known_symbols {
+                    if other != &sym.name
+                        && f.type_name.contains(other)
+                        && seen_edges.insert((sym.name.clone(), other.clone()))
+                    {
+                        lines.push(format!("    {} *-- {} : {}", sym.name, other, f.name));
+                    }
+                }
+            }
+            for m in &sym.methods {
+                for other in &known_symbols {
+                    if other != &sym.name {
+                        let in_sig = m.signature.contains(other);
+                        let in_ret = m
+                            .return_type
+                            .as_ref()
+                            .map(|r| r.contains(other))
+                            .unwrap_or(false);
+                        if (in_sig || in_ret)
+                            && seen_edges.insert((sym.name.clone(), other.clone()))
+                        {
+                            lines.push(format!("    {} ..> {} : {}", sym.name, other, m.name));
+                        }
+                    }
+                }
+            }
+        }
+
         lines.join("\n")
     }
 
@@ -560,5 +612,21 @@ mod tests {
         let role = symbols.iter().find(|s| s.name == "UserRole").unwrap();
         assert_eq!(role.kind, RustSymbolKind::Enum);
         assert_eq!(role.fields.len(), 2);
+    }
+
+    #[test]
+    fn test_scan_workspace_project() {
+        let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
+        let report = RustScanner::scan_project(workspace_root).expect("Should scan workspace");
+        assert!(
+            !report.symbols.is_empty(),
+            "Should find symbols in workspace"
+        );
+        assert!(report.symbols.iter().any(|s| s.name == "RustScanner"));
+
+        let mermaid = RustScanner::generate_mermaid_class_diagram(&report);
+        assert!(mermaid.contains("class RustScanner"));
+        assert!(mermaid.contains("classDiagram"));
     }
 }
