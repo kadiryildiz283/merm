@@ -6,6 +6,7 @@ pub mod command;
 pub mod engine;
 pub mod error;
 pub mod extractor;
+pub mod fabric_prompts;
 pub mod language_adapter;
 pub mod llm_client;
 pub mod manifest;
@@ -30,6 +31,10 @@ pub use engine::{
 };
 pub use error::CoreError;
 pub use extractor::{DiagramBlock, DiagramExtractor, DiagramType};
+pub use fabric_prompts::{
+    ADVICE_COMPOSITE_SYSTEM, CREATE_DESIGN_DOCUMENT_SYSTEM, IMPROVE_PROMPT_SYSTEM,
+    OK_EXECUTION_SYSTEM, SYSTEM_MD_TEMPLATE, TASK_PLANNER_SYSTEM,
+};
 pub use language_adapter::{BuildStatus, LanguageAdapter, RustAdapter};
 pub use llm_client::{AgyLlmProvider, HttpLlmProvider, LlmClient, LlmProvider, MockLlmProvider};
 pub use manifest::{NodeBinding, ProjectManifest, ProjectSettings, MANIFEST_FILE, MERM_DIR};

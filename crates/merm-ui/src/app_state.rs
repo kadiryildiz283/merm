@@ -237,6 +237,16 @@ impl AppState {
             }
             let _ = manifest.save();
 
+            let mut verified_on_disk = 0;
+            let mut pending_on_disk = 0;
+            for binding in manifest.bindings.values() {
+                if manifest.project_root.join(&binding.file).is_file() {
+                    verified_on_disk += 1;
+                } else {
+                    pending_on_disk += 1;
+                }
+            }
+
             // If current diagram is empty, minimal, or old sample, populate with scanned class diagram
             let is_sample_or_empty = self.diagram_source.contains("PaymentService")
                 || self.diagram_source.contains("WelcomeToMerm")
@@ -247,17 +257,28 @@ impl AppState {
                 self.diagram_source = RustScanner::generate_mermaid_class_diagram(&scan_report);
                 self.recalculate_diagram();
             }
+
+            let name = manifest.project_name.clone();
+            self.manifest = Some(manifest);
+
+            self.status_message = if pending_on_disk > 0 {
+                format!(
+                    "Bound to '{}' ({} verified on disk, {} pending - run &check to scaffold)",
+                    name, verified_on_disk, pending_on_disk
+                )
+            } else {
+                format!(
+                    "Bound to '{}' ({} files verified on disk, 100% matched)",
+                    name, verified_on_disk
+                )
+            };
+
+            return Ok(());
         }
 
         let name = manifest.project_name.clone();
-        let bound_count = manifest.bindings.len();
         self.manifest = Some(manifest);
-
-        self.status_message = format!(
-            "Bound to project '{}' ({} modules mapped to diagram classes)",
-            name, bound_count
-        );
-
+        self.status_message = format!("Bound to project '{}'", name);
         Ok(())
     }
 
@@ -1171,20 +1192,111 @@ Keybindings (NORMAL mode):
     }
 
     pub fn handle_worker_result(&mut self, res: WorkerResult) {
-        self.is_busy = false;
-        self.busy_message.clear();
         match res {
+            WorkerResult::Progress {
+                phase,
+                detail,
+                is_tool: _,
+            } => {
+                self.is_busy = true;
+                self.busy_message = format!("⚙️ {} — {}", phase, detail);
+                let tool_card = format!(
+                    "\n┌─ ⚙️  Tool Call: {} ───────────────────────────────\n\
+                    │  Status: ⚡ In Progress...\n\
+                    │  Detail: {}\n\
+                    └─────────────────────────────────────────────────────────────\n",
+                    phase, detail
+                );
+                if let Some(ref mut content) = self.report_content {
+                    content.push_str(&tool_card);
+                } else {
+                    self.report_content = Some(tool_card);
+                }
+            }
             WorkerResult::CheckFinished(Ok(report)) => {
+                self.is_busy = false;
+                self.busy_message.clear();
                 let status_str = if report.is_compatible { "PASS" } else { "FAIL" };
                 self.status_message = format!("&check completed: Status: {}", status_str);
-                let text = report.format_text();
+                let mut text = report.format_text();
+
+                if !report.is_compatible {
+                    let missing_nodes: Vec<String> = if let Some(ref diag) = self.current_diagram {
+                        if let Some(ref manifest) = self.manifest {
+                            if let Ok(scan) = RustScanner::scan_project(&manifest.project_root) {
+                                let existing_names: std::collections::HashSet<_> =
+                                    scan.symbols.iter().map(|s| s.name.as_str()).collect();
+                                diag.nodes
+                                    .iter()
+                                    .filter(|n| !existing_names.contains(n.id.as_str()))
+                                    .map(|n| n.id.clone())
+                                    .collect()
+                            } else {
+                                Vec::new()
+                            }
+                        } else {
+                            Vec::new()
+                        }
+                    } else {
+                        Vec::new()
+                    };
+
+                    let mut suggested_files = Vec::new();
+                    for node in &missing_nodes {
+                        let code = Scaffolder::generate_rust_module(node, None, &[], &[]);
+                        suggested_files.push((format!("src/{}.rs", node.to_lowercase()), code));
+                    }
+
+                    let plan_text = format!(
+                        "\n\n============================================================\n\
+                        💡 Divergence Self-Healing Plan (Ready for `&ok`)\n\
+                        ============================================================\n\
+                        Mermaid diagram and Rust codebase are out of sync.\n\
+                        Missing Rust module(s): {}\n\n\
+                        ┌─ ⚙️  Autonomous Action: Scaffolder::generate_rust_module ────\n\
+                        │  Modules to scaffold: {}\n\
+                        │  Entrypoint: pub fn run(input: &str) -> String\n\
+                        │  Default I/O: input = \"{{}}\", output = \"1\"\n\
+                        │  Verification Gate: cargo check with atomic rollback\n\
+                        └─────────────────────────────────────────────────────────────\n\n\
+                        👉 Press 'o' or enter `&ok` to automatically scaffold code and heal divergence!",
+                        if missing_nodes.is_empty() {
+                            "AST mismatch / compiler diagnostics detected".to_string()
+                        } else {
+                            missing_nodes.join(", ")
+                        },
+                        if missing_nodes.is_empty() {
+                            "Align AST & fix compiler errors".to_string()
+                        } else {
+                            missing_nodes.join(", ")
+                        }
+                    );
+                    text.push_str(&plan_text);
+
+                    let proposal = AdviceProposal {
+                        prompt: "Auto-heal Mermaid diagram and Rust codebase divergence"
+                            .to_string(),
+                        analysis: text.clone(),
+                        suggested_files,
+                        suggested_diagram: None,
+                    };
+                    self.pending_advice = Some(proposal);
+                    self.status_message =
+                        "⚠️ Divergence detected! Press 'o' or run '&ok' to heal with AI."
+                            .to_string();
+                }
+
                 self.last_check_report = Some(report);
                 self.show_report(text);
             }
             WorkerResult::CheckFinished(Err(e)) => {
+                self.is_busy = false;
+                self.busy_message.clear();
                 self.status_message = format!("&check failed: {}", e);
             }
             WorkerResult::AdviceFinished(Ok(proposal)) => {
+                self.is_busy = false;
+                self.busy_message.clear();
                 let diag_info = if proposal.suggested_diagram.is_some() {
                     " [Diagram Update Detected]"
                 } else {
@@ -1197,71 +1309,121 @@ Keybindings (NORMAL mode):
                 };
 
                 self.status_message = format!(
-                    "&advice ready.{}{} Type `&ok` to apply proposal to app.",
+                    "&advice ready.{}{} Press 'o' or run `&ok` to apply proposal.",
                     diag_info, files_info
                 );
                 let content = format!(
-                    "=== Architectural Advice Proposal ===\nQuery: {}\n{}{}\n\n{}\n\nType `&ok` to apply diagram & file changes to application.",
+                    "============================================================\n\
+                    🤖 Fabric Architecture Proposal (improve_prompt + task_planner)\n\
+                    Query: {}\n\
+                    Status: Plan ready{}{}\n\
+                    ============================================================\n\n\
+                    {}\n\n\
+                    ────────────────────────────────────────────────────────────\n\
+                    💡 Next Step: Press 'o' or run `&ok` to apply this proposal with atomic rollback!",
                     proposal.prompt, diag_info, files_info, proposal.analysis
                 );
                 self.pending_advice = Some(proposal);
                 self.show_report(content);
             }
             WorkerResult::AdviceFinished(Err(e)) => {
+                self.is_busy = false;
+                self.busy_message.clear();
                 self.status_message = format!("&advice failed: {}", e);
             }
             WorkerResult::OkFinished(Ok((msg, new_diag))) => {
-                self.status_message = format!("&ok: {}", msg);
+                self.is_busy = false;
+                self.busy_message.clear();
+                self.status_message = format!("✔ &ok applied: {}", msg);
                 if let Some(d) = new_diag {
                     self.diagram_source = d;
                     self.recalculate_diagram();
                 }
                 self.pending_advice = None;
+                let report_text = format!(
+                    "============================================================\n\
+                    ✔ Architecture Advice & Mutations Applied Successfully\n\
+                    ============================================================\n\
+                    {}\n\n\
+                    All files verified with `cargo check` under atomic rollback.\n\
+                    Type `:w` to persist diagram or `&check` to re-verify.",
+                    msg
+                );
+                self.show_report(report_text);
             }
             WorkerResult::OkFinished(Err(e)) => {
+                self.is_busy = false;
+                self.busy_message.clear();
                 self.status_message = format!("&ok rollback: {}", e);
+                let report_text = format!(
+                    "============================================================\n\
+                    ✖ Architecture Advice Failed - Atomic Rollback Triggered\n\
+                    ============================================================\n\
+                    Error: {}\n\n\
+                    All mutated files were safely rolled back to pre-transaction state.",
+                    e
+                );
+                self.show_report(report_text);
             }
             WorkerResult::AiFinished(Ok((explanation, new_diag))) => {
+                self.is_busy = false;
+                self.busy_message.clear();
                 self.status_message = format!("&ai completed: {}", explanation);
                 if let Some(d) = new_diag {
                     self.diagram_source = d;
                     self.recalculate_diagram();
                 }
+                let report_text = format!(
+                    "============================================================\n\
+                    ✔ Autonomous AI Execution Completed\n\
+                    ============================================================\n\
+                    {}\n\n\
+                    Type `:w` to save diagram or `&check` to re-verify.",
+                    explanation
+                );
+                self.show_report(report_text);
             }
             WorkerResult::AiFinished(Err(e)) => {
+                self.is_busy = false;
+                self.busy_message.clear();
                 self.status_message = format!("&ai error: {}", e);
             }
-            WorkerResult::TestFinished { node_id, result } => match result {
-                Ok(res) => {
-                    let status = if res.success { "SUCCESS" } else { "FAILED" };
-                    let output_display =
-                        if res.output_payload.trim().is_empty() || res.output_payload == "()" {
-                            "1".to_string()
-                        } else {
-                            res.output_payload.clone()
-                        };
-                    self.status_message = format!(
-                        "Node '{}' [{}] ({}ms): output = {}",
-                        node_id, status, res.duration_ms, output_display
-                    );
-                    let report_text = format!(
-                        "=== Node Execution Result: {} ===\nStatus: {} (Exit code: {:?})\nDuration: {}ms\n\n[Default Input]:\n{}\n\n[Output Payload]:\n{}\n\n[Stdout]:\n{}\n\n[Stderr]:\n{}",
-                        node_id,
-                        status,
-                        res.exit_code,
-                        res.duration_ms,
-                        "{}",
-                        output_display,
-                        res.stdout,
-                        res.stderr
-                    );
-                    self.last_execution_result = Some(res);
-                    self.show_report(report_text);
+            WorkerResult::TestFinished { node_id, result } => {
+                self.is_busy = false;
+                self.busy_message.clear();
+                match result {
+                    Ok(res) => {
+                        let status = if res.success { "SUCCESS" } else { "FAILED" };
+                        let output_display =
+                            if res.output_payload.trim().is_empty() || res.output_payload == "()" {
+                                "1".to_string()
+                            } else {
+                                res.output_payload.clone()
+                            };
+                        self.status_message = format!(
+                            "Node '{}' [{}] ({}ms): output = {}",
+                            node_id, status, res.duration_ms, output_display
+                        );
+                        let report_text = format!(
+                            "=== Node Execution Result: {} ===\nStatus: {} (Exit code: {:?})\nDuration: {}ms\n\n[Default Input]:\n{}\n\n[Output Payload]:\n{}\n\n[Stdout]:\n{}\n\n[Stderr]:\n{}",
+                            node_id,
+                            status,
+                            res.exit_code,
+                            res.duration_ms,
+                            "{}",
+                            output_display,
+                            res.stdout,
+                            res.stderr
+                        );
+                        self.last_execution_result = Some(res);
+                        self.show_report(report_text);
+                    }
+                    Err(e) => {
+                        self.status_message =
+                            format!("Execution failed for node '{}': {}", node_id, e);
+                    }
                 }
-                Err(e) => {
-                    self.status_message = format!("Execution failed for node '{}': {}", node_id, e);
-                }
-            },
+            }
         }
     }
 

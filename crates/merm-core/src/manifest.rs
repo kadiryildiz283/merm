@@ -196,6 +196,11 @@ impl ProjectManifest {
             })?;
         }
 
+        let system_md_path = merm_dir.join("system.md");
+        if !system_md_path.exists() {
+            let _ = fs::write(&system_md_path, crate::fabric_prompts::SYSTEM_MD_TEMPLATE);
+        }
+
         let m_path = Self::manifest_path(root);
         if m_path.is_file() {
             let content = fs::read_to_string(&m_path).map_err(|e| {

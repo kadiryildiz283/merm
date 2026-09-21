@@ -214,3 +214,77 @@ async fn test_agy_provider_manifest_integration() {
     assert_eq!(manifest.settings.llm_provider, "agy");
     let _ = client;
 }
+
+#[tokio::test]
+async fn test_fabric_prompts_system_md_auto_created() {
+    let root = create_temp_dir();
+    let manifest = ProjectManifest::load_or_init(&root).unwrap();
+
+    let system_md = root.join(".merm/system.md");
+    assert!(system_md.is_file(), ".merm/system.md must be auto-created");
+    let content = fs::read_to_string(&system_md).unwrap();
+    assert!(content.contains("Fabric: improve_prompt"));
+    assert!(content.contains("Fabric: task_planner"));
+    assert!(content.contains("Fabric: create_design_document"));
+    assert!(content.contains("Execution Protocol"));
+
+    // Verify Advisor reads this prompt
+    let mock = MockLlmProvider::new();
+    mock.enqueue_response(Ok("Architectural plan verified.".to_string()));
+
+    let proposal =
+        Advisor::request_advice_with_provider(&manifest, "classDiagram\n", "plan query", &mock)
+            .await
+            .unwrap();
+    assert_eq!(proposal.prompt, "plan query");
+}
+
+#[tokio::test]
+async fn test_advisor_execute_ok_with_mock_llm() {
+    let root = create_temp_dir();
+    fs::write(
+        root.join("Cargo.toml"),
+        r#"[package]
+name = "ok_exec_test"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(root.join("src/lib.rs"), "// lib").unwrap();
+
+    let mut manifest = ProjectManifest::load_or_init(&root).unwrap();
+    let initial_diagram = "classDiagram\n    class Worker\n";
+
+    // Proposal without files (high-level plan)
+    let proposal = merm_core::AdviceProposal {
+        prompt: "Add a database connector".to_string(),
+        analysis: "Step 1: Create Database struct. Step 2: Implement run().".to_string(),
+        suggested_files: Vec::new(),
+        suggested_diagram: None,
+    };
+
+    let mock = MockLlmProvider::new();
+    let json_response = r#"{
+  "explanation": "Scaffolded database connector",
+  "files": [
+    {
+      "path": "src/database.rs",
+      "content": "pub struct Database;\nimpl Database { pub fn run(input: &str) -> String { format!(\"db: {}\", input) } }"
+    }
+  ],
+  "diagram": "classDiagram\n    class Worker\n    class Database\n    Worker --> Database\n"
+}"#;
+    mock.enqueue_response(Ok(json_response.to_string()));
+
+    let (explanation, new_diag) =
+        Advisor::execute_ok_with_provider(&mut manifest, &proposal, initial_diagram, &mock)
+            .await
+            .unwrap();
+
+    assert!(explanation.contains("database connector"));
+    assert!(new_diag.is_some());
+    assert!(new_diag.unwrap().contains("Worker --> Database"));
+    assert!(root.join("src/database.rs").is_file());
+}

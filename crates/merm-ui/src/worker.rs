@@ -35,6 +35,11 @@ pub enum WorkerTask {
 }
 
 pub enum WorkerResult {
+    Progress {
+        phase: String,
+        detail: String,
+        is_tool: bool,
+    },
     CheckFinished(Result<CheckReport, String>),
     AdviceFinished(Result<AdviceProposal, String>),
     OkFinished(Result<(String, Option<String>), String>),
@@ -67,6 +72,21 @@ impl AsyncWorker {
                             manifest,
                             diagram_source,
                         } => {
+                            let _ = result_tx.send(WorkerResult::Progress {
+                                phase: "AST Scanner".to_string(),
+                                detail: "Scanning Rust symbols, structs, and modules...".to_string(),
+                                is_tool: true,
+                            });
+                            let _ = result_tx.send(WorkerResult::Progress {
+                                phase: "Compiler Verification".to_string(),
+                                detail: "Running cargo check verification...".to_string(),
+                                is_tool: true,
+                            });
+                            let _ = result_tx.send(WorkerResult::Progress {
+                                phase: "LLM Critique".to_string(),
+                                detail: "Verifying diagram vs codebase with LLM...".to_string(),
+                                is_tool: true,
+                            });
                             let res = rt
                                 .block_on(Advisor::run_check(&manifest, &diagram_source))
                                 .map_err(|e| e.to_string());
@@ -77,6 +97,16 @@ impl AsyncWorker {
                             diagram_source,
                             prompt,
                         } => {
+                            let _ = result_tx.send(WorkerResult::Progress {
+                                phase: "Fabric Prompts".to_string(),
+                                detail: "Fusing improve_prompt, task_planner & C4 design...".to_string(),
+                                is_tool: true,
+                            });
+                            let _ = result_tx.send(WorkerResult::Progress {
+                                phase: "Co-Architect".to_string(),
+                                detail: format!("Analyzing architecture: {}", prompt),
+                                is_tool: true,
+                            });
                             let res = rt
                                 .block_on(Advisor::request_advice(
                                     &manifest,
@@ -91,10 +121,23 @@ impl AsyncWorker {
                             proposal,
                             diagram_source,
                         } => {
-                            let res =
-                                Advisor::apply_advice(&mut manifest, &proposal, &diagram_source)
-                                    .map(|msg| (msg, proposal.suggested_diagram.clone()))
-                                    .map_err(|e| e.to_string());
+                            let _ = result_tx.send(WorkerResult::Progress {
+                                phase: "Snapshot Engine".to_string(),
+                                detail: "Creating atomic rollback transaction snapshot in .merm/snapshots/".to_string(),
+                                is_tool: true,
+                            });
+                            let _ = result_tx.send(WorkerResult::Progress {
+                                phase: "Autonomous Agent".to_string(),
+                                detail: "Synthesizing code mutations and updating diagram...".to_string(),
+                                is_tool: true,
+                            });
+                            let res = rt
+                                .block_on(Advisor::execute_ok(
+                                    &mut manifest,
+                                    &proposal,
+                                    &diagram_source,
+                                ))
+                                .map_err(|e| e.to_string());
                             let _ = result_tx.send(WorkerResult::OkFinished(res));
                         }
                         WorkerTask::Ai {
@@ -102,6 +145,16 @@ impl AsyncWorker {
                             diagram_source,
                             prompt,
                         } => {
+                            let _ = result_tx.send(WorkerResult::Progress {
+                                phase: "Autonomous Scaffolding".to_string(),
+                                detail: format!("Executing plan: {}", prompt),
+                                is_tool: true,
+                            });
+                            let _ = result_tx.send(WorkerResult::Progress {
+                                phase: "Compilation Gate".to_string(),
+                                detail: "Verifying cargo check gate...".to_string(),
+                                is_tool: true,
+                            });
                             let res = rt
                                 .block_on(Advisor::execute_ai(
                                     &mut manifest,
@@ -118,6 +171,11 @@ impl AsyncWorker {
                             entrypoint,
                             input,
                         } => {
+                            let _ = result_tx.send(WorkerResult::Progress {
+                                phase: "Test Sandbox".to_string(),
+                                detail: format!("Running test harness for node '{}'...", node_id),
+                                is_tool: true,
+                            });
                             let res = NodeRunner::execute_node(
                                 &project_root,
                                 &node_id,

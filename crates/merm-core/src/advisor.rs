@@ -177,17 +177,15 @@ impl Advisor {
     ) -> Result<AdviceProposal, CoreError> {
         let scan_report = RustScanner::scan_project(&manifest.project_root)?;
 
-        let system_prompt = r#"You are a senior Rust systems architect. The user is asking for architectural advice or modifications for their Rust project and Mermaid diagram.
-CRITICAL INSTRUCTIONS:
-1. DO NOT call any external tools, shell commands, or subagents. Respond directly in text.
-2. If your recommendation updates or changes the Mermaid architecture diagram, ALWAYS provide the COMPLETE updated diagram in a ```mermaid ... ``` code block.
-3. If your recommendation adds or modifies Rust files, provide each file clearly using:
-```rust
-// File: src/module.rs
-<complete code>
-```
-or embed a JSON block conforming to {"files": [{"path": "src/...", "content": "..."}], "diagram": "classDiagram..."}.
-4. Structure your advice clearly with executive rationale, updated diagram, code implementation, and trade-offs."#;
+        let system_md_path = manifest.project_root.join(".merm/system.md");
+        let custom_system = if system_md_path.is_file() {
+            fs::read_to_string(&system_md_path).ok()
+        } else {
+            None
+        };
+        let system_prompt = custom_system
+            .as_deref()
+            .unwrap_or(crate::fabric_prompts::ADVICE_COMPOSITE_SYSTEM);
 
         let user_query = format!(
             "User Query: {}\n\nCurrent Mermaid Diagram:\n{}\n\nExisting Rust Modules:\n{:?}\n",
@@ -398,8 +396,8 @@ or embed a JSON block conforming to {"files": [{"path": "src/...", "content": ".
                             kind: format!("{:?}", sym.kind).to_lowercase(),
                             executable: sym.is_executable,
                             entrypoint: sym.primary_entrypoint.clone(),
-                            input_type: Some("String".to_string()),
-                            output_type: Some("String".to_string()),
+                            input_type: Some("{}".to_string()),
+                            output_type: Some("1".to_string()),
                         });
                     }
                 }
@@ -424,6 +422,33 @@ or embed a JSON block conforming to {"files": [{"path": "src/...", "content": ".
         }
     }
 
+    pub async fn execute_ok(
+        manifest: &mut ProjectManifest,
+        proposal: &AdviceProposal,
+        diagram_source: &str,
+    ) -> Result<(String, Option<String>), CoreError> {
+        let llm = LlmClient::from_manifest(manifest);
+        Self::execute_ok_with_provider(manifest, proposal, diagram_source, &llm).await
+    }
+
+    pub async fn execute_ok_with_provider(
+        manifest: &mut ProjectManifest,
+        proposal: &AdviceProposal,
+        diagram_source: &str,
+        provider: &dyn LlmProvider,
+    ) -> Result<(String, Option<String>), CoreError> {
+        if !proposal.suggested_files.is_empty() || proposal.suggested_diagram.is_some() {
+            let msg = Self::apply_advice(manifest, proposal, diagram_source)?;
+            return Ok((msg, proposal.suggested_diagram.clone()));
+        }
+
+        let execution_task = format!(
+            "Execute and implement this architecture plan into the codebase:\n\nTask: {}\n\nPlan:\n{}",
+            proposal.prompt, proposal.analysis
+        );
+        Self::execute_ai_with_provider(manifest, diagram_source, &execution_task, provider).await
+    }
+
     pub async fn execute_ai(
         manifest: &mut ProjectManifest,
         diagram_source: &str,
@@ -441,15 +466,7 @@ or embed a JSON block conforming to {"files": [{"path": "src/...", "content": ".
     ) -> Result<(String, Option<String>), CoreError> {
         let scan_report = RustScanner::scan_project(&manifest.project_root)?;
 
-        let system_prompt = r#"You are an autonomous Rust engineer. Return ONLY a JSON object conforming to this schema:
-{
-  "explanation": "Brief explanation of changes",
-  "files": [
-    { "path": "src/example.rs", "content": "..." }
-  ],
-  "diagram": "classDiagram\n..."
-}
-Do not include any conversational preamble or markdown code fences outside the JSON."#;
+        let system_prompt = crate::fabric_prompts::OK_EXECUTION_SYSTEM;
 
         let user_query = format!(
             "Task: {}\n\nCurrent Mermaid Diagram:\n{}\n\nExisting Modules:\n{:?}",

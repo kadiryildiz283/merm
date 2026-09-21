@@ -626,16 +626,37 @@ impl MermAppWindow {
                 split_y, w, split_y, palette.method_color
             ));
 
+            let pacman_frame = ((std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+                / 130)
+                % 6) as usize;
+
+            let pacman_art = match pacman_frame {
+                0 => "ᗧ • • • • 👻",
+                1 => " ᗤ • • • 👻",
+                2 => "  ᗧ • • 👻",
+                3 => "   ᗤ • 👻",
+                4 => "    ᗧ 👻",
+                _ => "     ᗤ💥",
+            };
+
             let is_focused = app_state.modal.mode == UiMode::Report;
-            let focus_str = if is_focused {
-                "🤖 AI Architecture & Diagnostic Buffer [🎯 ODAKTA]"
+            let focus_str = if app_state.is_busy {
+                format!(
+                    "🤖 AI Agent Working [ {} ] ⚙️ {}",
+                    pacman_art, app_state.busy_message
+                )
+            } else if is_focused {
+                "🤖 AI Architecture & Diagnostic Buffer [🎯 ODAKTA]".to_string()
             } else {
-                "🤖 AI Architecture & Diagnostic Buffer [KANVAS ODAKTA]"
+                "🤖 AI Architecture & Diagnostic Buffer [KANVAS ODAKTA]".to_string()
             };
 
             svg.push_str(&format!(
                 r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">── [ {} ] ──</text>"##,
-                14.0 * ui_scale, split_header_y, if is_focused { &palette.method_color } else { &palette.text_main }, split_header_font, escape_xml(focus_str)
+                14.0 * ui_scale, split_header_y, if app_state.is_busy { "#f9e2af" } else if is_focused { &palette.method_color } else { &palette.text_main }, split_header_font, escape_xml(&focus_str)
             ));
 
             // Middle hint
@@ -740,21 +761,38 @@ impl MermAppWindow {
                         gutter_x - 8.0 * ui_scale, cur_y, palette.text_sub, gutter_font, line_no
                     ));
 
-                    // Syntax coloring
+                    // Syntax coloring (OpenAI Web GUI & Fabric Card styling)
                     let color = if line.starts_with("#") || line.starts_with("===") {
                         &palette.stereotype_color
-                    } else if line.starts_with("✔")
+                    } else if line.starts_with("┌─ ⚙️")
+                        || line.starts_with("├─ ⚙️")
+                        || line.starts_with("└─")
+                        || line.starts_with("╭─ ⚙️")
+                        || line.starts_with("╰─")
+                    {
+                        &palette.method_color
+                    } else if line.starts_with("┌─ 💭") || line.starts_with("├─ 💭") {
+                        &palette.stereotype_color
+                    } else if line.starts_with("│  Status: ⚡") || line.starts_with("⚡") {
+                        &palette.var_color
+                    } else if line.starts_with("│  Status: ✓")
+                        || line.starts_with("✔")
                         || line.starts_with("Status: PASS")
                         || line.starts_with("SUCCESS")
                         || line.starts_with("+ ")
                     {
                         &palette.method_color
-                    } else if line.starts_with("✖")
+                    } else if line.starts_with("│  Status: ✖")
+                        || line.starts_with("✖")
                         || line.starts_with("Status: FAIL")
                         || line.starts_with("FAILED")
                         || line.starts_with("- ")
                     {
                         &palette.var_color
+                    } else if line.starts_with("│") {
+                        &palette.text_sub
+                    } else if line.starts_with("💡") {
+                        &palette.stereotype_color
                     } else if line.starts_with("```") {
                         &palette.method_color
                     } else if line.starts_with("---") {
@@ -830,13 +868,29 @@ impl MermAppWindow {
             badge_w + 10.0 * ui_scale, status_text_y, palette.text_main, status_font, escape_xml(&file_info)
         ));
 
-        // Middle: Busy animation or status message
+        // Middle: Busy Pacman animation or status message
         let middle_x: f32 = (badge_w + 240.0 * ui_scale).min(w - 280.0 * ui_scale);
         if app_state.is_busy {
-            let busy_text = format!("⏳ {} [working...]", app_state.busy_message);
+            let pacman_frame = ((std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+                / 130)
+                % 6) as usize;
+
+            let pacman_art = match pacman_frame {
+                0 => "ᗧ • • • • 👻",
+                1 => " ᗤ • • • 👻",
+                2 => "  ᗧ • • 👻",
+                3 => "   ᗤ • 👻",
+                4 => "    ᗧ 👻",
+                _ => "     ᗤ💥",
+            };
+
+            let busy_text = format!("{} ⚙️ {}", pacman_art, app_state.busy_message);
             svg.push_str(&format!(
                 r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">{}</text>"##,
-                middle_x, status_text_y, palette.method_color, status_font, escape_xml(&busy_text)
+                middle_x, status_text_y, "#f9e2af", status_font, escape_xml(&busy_text)
             ));
         } else if !app_state.status_message.is_empty() {
             svg.push_str(&format!(
