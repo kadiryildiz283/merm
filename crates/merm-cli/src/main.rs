@@ -205,15 +205,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if atty_is_terminal() {
                 // Check current directory or any ancestor for project root
                 let curr_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                let project_root = ProjectManifest::detect_project_root(&curr_dir);
-                bound_dir = Some(project_root.to_string_lossy().to_string());
-                if let Ok(scan_report) = RustScanner::scan_project(&project_root) {
-                    RustScanner::generate_mermaid_class_diagram(&scan_report)
+                if let Some(project_root) = ProjectManifest::detect_project_root(&curr_dir) {
+                    bound_dir = Some(project_root.to_string_lossy().to_string());
+                    if let Ok(scan_report) = RustScanner::scan_project(&project_root) {
+                        if !scan_report.symbols.is_empty() {
+                            RustScanner::generate_mermaid_class_diagram(&scan_report)
+                        } else {
+                            format!(
+                                "classDiagram\n    direction TD\n    class {} {{\n        +run()\n    }}\n",
+                                project_root
+                                    .file_name()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("App")
+                            )
+                        }
+                    } else {
+                        "classDiagram\n    direction TD\n    class App {\n        +run()\n    }\n"
+                            .to_string()
+                    }
                 } else {
-                    format!(
-                        "classDiagram\n    direction TD\n    class {} {{\n        <<project>>\n        +run()\n    }}\n",
-                        project_root.file_name().and_then(|s| s.to_str()).unwrap_or("Project")
-                    )
+                    "classDiagram\n    direction TD\n    class NewNode {\n        +run()\n    }\n"
+                        .to_string()
                 }
             } else {
                 let mut buffer = String::new();
@@ -224,20 +236,50 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(path) => {
             let p = std::path::Path::new(path);
             if p.is_dir() {
-                let project_root = ProjectManifest::detect_project_root(p);
-                bound_dir = Some(project_root.to_string_lossy().to_string());
-                if let Ok(scan_report) = RustScanner::scan_project(&project_root) {
-                    RustScanner::generate_mermaid_class_diagram(&scan_report)
+                if let Some(project_root) = ProjectManifest::detect_project_root(p) {
+                    bound_dir = Some(project_root.to_string_lossy().to_string());
+                    if let Ok(scan_report) = RustScanner::scan_project(&project_root) {
+                        if !scan_report.symbols.is_empty() {
+                            RustScanner::generate_mermaid_class_diagram(&scan_report)
+                        } else {
+                            format!(
+                                "classDiagram\n    direction TD\n    class {} {{\n        +run()\n    }}\n",
+                                project_root
+                                    .file_name()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or("App")
+                            )
+                        }
+                    } else {
+                        "classDiagram\n    direction TD\n    class App {\n        +run()\n    }\n"
+                            .to_string()
+                    }
                 } else {
+                    let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("App");
                     format!(
-                        "classDiagram\n    direction TD\n    class {} {{\n        <<project>>\n        +run()\n    }}\n",
-                        project_root.file_name().and_then(|s| s.to_str()).unwrap_or("Project")
+                        "classDiagram\n    direction TD\n    class {} {{\n        +run()\n    }}\n",
+                        name
                     )
                 }
             } else {
-                let project_root = ProjectManifest::detect_project_root(p);
-                bound_dir = Some(project_root.to_string_lossy().to_string());
-                fs::read_to_string(path)?
+                if let Some(project_root) = ProjectManifest::detect_project_root(p) {
+                    bound_dir = Some(project_root.to_string_lossy().to_string());
+                }
+                let raw_content = fs::read_to_string(path)?;
+                if raw_content.trim().is_empty() {
+                    let default_name = p.file_stem().and_then(|s| s.to_str()).unwrap_or("NewNode");
+                    let clean_name = if default_name == "mermaid" {
+                        "App"
+                    } else {
+                        default_name
+                    };
+                    format!(
+                        "classDiagram\n    direction TD\n    class {} {{\n        +run()\n    }}\n",
+                        clean_name
+                    )
+                } else {
+                    raw_content
+                }
             }
         }
     };

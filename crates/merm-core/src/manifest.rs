@@ -164,28 +164,47 @@ impl ProjectManifest {
         None
     }
 
-    pub fn detect_project_root(start: &Path) -> PathBuf {
+    pub fn detect_project_root(start: &Path) -> Option<PathBuf> {
         let curr = if start.is_file() {
-            start.parent().unwrap_or(Path::new(".")).to_path_buf()
+            start.parent()?.to_path_buf()
         } else {
             start.to_path_buf()
         };
 
-        let mut check_curr = curr.clone();
+        let abs_curr = curr.canonicalize().unwrap_or(curr);
+        let home_dir = std::env::var("HOME")
+            .ok()
+            .and_then(|h| PathBuf::from(h).canonicalize().ok());
+
+        let mut check_curr = abs_curr;
         loop {
+            // Never treat $HOME, /home, / or /tmp as a project root!
+            if let Some(ref home) = home_dir {
+                if &check_curr == home {
+                    break;
+                }
+            }
+            if check_curr.parent().is_none()
+                || check_curr == Path::new("/home")
+                || check_curr == Path::new("/tmp")
+            {
+                break;
+            }
+
             if check_curr.join("Cargo.toml").is_file()
                 || check_curr.join(".git").is_dir()
                 || check_curr.join("pyproject.toml").is_file()
                 || check_curr.join("package.json").is_file()
                 || check_curr.join("requirements.txt").is_file()
             {
-                return check_curr;
+                return Some(check_curr);
             }
+
             if !check_curr.pop() {
                 break;
             }
         }
-        curr
+        None
     }
 
     pub fn load_or_init(root: &Path) -> Result<Self, CoreError> {

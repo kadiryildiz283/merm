@@ -75,8 +75,9 @@ impl AppState {
 
         // Try detecting current directory or parent project automatically
         if let Ok(curr) = env::current_dir() {
-            let root = ProjectManifest::detect_project_root(&curr);
-            let _ = state.bind_project(Some(root.to_str().unwrap_or(".")));
+            if let Some(root) = ProjectManifest::detect_project_root(&curr) {
+                let _ = state.bind_project(Some(root.to_str().unwrap_or(".")));
+            }
         }
 
         let p_name = state
@@ -176,7 +177,13 @@ impl AppState {
             env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
         };
 
-        let project_root = ProjectManifest::detect_project_root(&path);
+        let project_root = match target_path {
+            Some(p) => PathBuf::from(p),
+            None => match ProjectManifest::detect_project_root(&path) {
+                Some(r) => r,
+                None => return Ok(()),
+            },
+        };
         let mut manifest =
             ProjectManifest::load_or_init(&project_root).map_err(|e| e.to_string())?;
 
@@ -245,17 +252,6 @@ impl AppState {
                 } else {
                     pending_on_disk += 1;
                 }
-            }
-
-            // If current diagram is empty, minimal, or old sample, populate with scanned class diagram
-            let is_sample_or_empty = self.diagram_source.contains("PaymentService")
-                || self.diagram_source.contains("WelcomeToMerm")
-                || self.diagram_source.trim().is_empty()
-                || self.diagram_source.trim() == "classDiagram";
-
-            if is_sample_or_empty && !scan_report.symbols.is_empty() {
-                self.diagram_source = RustScanner::generate_mermaid_class_diagram(&scan_report);
-                self.recalculate_diagram();
             }
 
             let name = manifest.project_name.clone();

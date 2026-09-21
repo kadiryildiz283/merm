@@ -70,6 +70,20 @@ impl RustScanner {
             files: Vec::new(),
         };
 
+        // Never scan HOME directory, /home, / or /tmp!
+        if let Ok(home) = std::env::var("HOME") {
+            if let Ok(abs_root) = root.canonicalize() {
+                if let Ok(abs_home) = PathBuf::from(home).canonicalize() {
+                    if abs_root == abs_home {
+                        return Ok(report);
+                    }
+                }
+            }
+        }
+        if root == Path::new("/") || root == Path::new("/home") || root == Path::new("/tmp") {
+            return Ok(report);
+        }
+
         let mut rs_files = Vec::new();
         Self::collect_rs_files(root, &mut rs_files)?;
 
@@ -136,12 +150,20 @@ impl RustScanner {
                 let path = entry.path();
                 if path.is_dir() {
                     let dir_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
-                    // Skip hidden directories, target, node_modules, build, packaging
+                    // Skip hidden directories, target, node_modules, build, packaging, and non-code folders
                     if dir_name.starts_with('.')
                         || dir_name == "target"
                         || dir_name == "node_modules"
                         || dir_name == "build"
                         || dir_name == "packaging"
+                        || dir_name == "Projeler"
+                        || dir_name == "Projects"
+                        || dir_name == "Downloads"
+                        || dir_name == "Desktop"
+                        || dir_name == "Documents"
+                        || dir_name == "Videos"
+                        || dir_name == "Music"
+                        || dir_name == "Pictures"
                     {
                         continue;
                     }
