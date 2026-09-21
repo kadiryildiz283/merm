@@ -82,6 +82,20 @@ fn test_app_state_command_dispatch() {
     assert!(app
         .diagram_source
         .contains("User --> BillingService : pays"));
+
+    // Copy command
+    app.show_report("Architecture Report Content\nLine 2".to_string());
+    app.execute_command_str(":copy");
+    assert!(app.status_message.contains("Copied") || app.status_message.contains("Split"));
+
+    // Test Tab auto-complete in command mode
+    let mut ctrl = ModalController {
+        mode: merm_ui::UiMode::Command,
+        command_buffer: "&advice".to_string(),
+        ..Default::default()
+    };
+    ctrl.handle_key('\t', false);
+    assert!(ctrl.command_buffer.contains("Analyze architecture"));
 }
 
 #[test]
@@ -181,7 +195,7 @@ fn test_overlay_svg_report_mode_rasterization() {
 
     app.show_report(report);
     assert_eq!(app.modal.mode, merm_ui::UiMode::Report);
-    assert_eq!(app.modal.report_scroll_offset, 0);
+    assert_eq!(app.modal.report_scroll_offset, 18);
 
     // Generate overlay SVG in Report mode
     let overlay_svg = merm_ui::MermAppWindow::build_overlay_svg(&app, 1280, 720).unwrap();
@@ -255,4 +269,88 @@ fn test_diagram_scaling_on_large_graph() {
     // Pan must align to top-left with padding so first modules are visible
     assert_eq!(transform.pan_x, 40.0);
     assert_eq!(transform.pan_y, 50.0);
+}
+
+#[test]
+fn test_interactive_diagram_editing_commands_and_actions() {
+    let source = "classDiagram\n    direction TD\n    class AuthService\n".to_string();
+    let mut app = AppState::new(source, false);
+    app.manifest = None;
+
+    // 1. :add class OrderProcessor
+    app.execute_command_str(":add class OrderProcessor");
+    assert!(app.diagram_source.contains("class OrderProcessor"));
+    assert!(app.report_content.as_ref().unwrap().contains("Added Node"));
+
+    // 2. :connect AuthService OrderProcessor calls
+    app.execute_command_str(":connect AuthService OrderProcessor calls");
+    assert!(app
+        .diagram_source
+        .contains("AuthService --> OrderProcessor : calls"));
+    assert!(app
+        .report_content
+        .as_ref()
+        .unwrap()
+        .contains("Node Connection"));
+
+    // 3. :edit OrderProcessor
+    app.execute_command_str(":edit OrderProcessor");
+    assert_eq!(app.modal.mode, merm_ui::UiMode::NodeEdit);
+    assert_eq!(app.modal.edit_node_id, "OrderProcessor");
+
+    // 4. Save node edit
+    app.handle_key_action(merm_ui::UiAction::SaveNodeEdit {
+        node_id: "OrderProcessor".to_string(),
+        stereotype: Some("service".to_string()),
+        members: vec!["+process_order() -> bool".to_string()],
+    });
+    assert!(app.diagram_source.contains("class OrderProcessor {"));
+    assert!(app.diagram_source.contains("<<service>>"));
+    assert!(app.diagram_source.contains("+process_order() -> bool"));
+
+    // 5. :rm OrderProcessor
+    app.execute_command_str(":rm OrderProcessor");
+    assert!(!app.diagram_source.contains("class OrderProcessor"));
+    assert!(!app.diagram_source.contains("calls"));
+    assert!(app.diagram_source.contains("class AuthService"));
+}
+
+#[test]
+fn test_node_navigation_and_e_keybindings() {
+    let mut ctrl = ModalController {
+        active_test_node_id: Some("AuthService".to_string()),
+        ..Default::default()
+    };
+
+    // 'e' and 'E' open node editor
+    assert_eq!(
+        ctrl.handle_key('e', true),
+        UiAction::OpenNodeEditor("AuthService".to_string())
+    );
+    assert_eq!(
+        ctrl.handle_key('E', true),
+        UiAction::OpenNodeEditor("AuthService".to_string())
+    );
+
+    // Test AppState arrow key directional selection
+    let source = "classDiagram\n    class NodeA\n    class NodeB\n    NodeA --> NodeB".to_string();
+    let mut app = AppState::new(source, false);
+
+    // If active node is None, any arrow navigation immediately selects first node (NodeA)
+    app.select_node(None);
+    assert!(app.active_node_id.is_none());
+    app.select_directional_node(0.0, 1.0);
+    assert_eq!(app.active_node_id.as_deref(), Some("NodeA"));
+
+    // Next arrow press moves to next node (NodeB)
+    app.select_directional_node(0.0, 1.0);
+    assert_eq!(app.active_node_id.as_deref(), Some("NodeB"));
+
+    // Canvas overlay SVG renders selection outline for active node
+    let overlay = merm_ui::MermAppWindow::build_overlay_svg(&app, 1280, 720).unwrap();
+    assert!(overlay.contains("🎯 SELECTED"));
+
+    // 'e' opens node editor even if invoked without node_id argument
+    app.execute_command_str(":edit");
+    assert_eq!(app.modal.mode, merm_ui::UiMode::NodeEdit);
 }

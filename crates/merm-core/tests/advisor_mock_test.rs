@@ -201,3 +201,16 @@ pub struct Session {
     assert!(result.contains("Applied advice"));
     assert!(root.join("src/session.rs").exists());
 }
+
+#[tokio::test]
+async fn test_agy_provider_manifest_integration() {
+    let root = create_temp_dir();
+    let mut manifest = ProjectManifest::load_or_init(&root).unwrap();
+    manifest.settings.llm_provider = "agy".to_string();
+    manifest.settings.llm_model = "inherit".to_string();
+
+    let client = merm_core::llm_client::LlmClient::from_manifest(&manifest);
+    // Ensure LlmClient initializes cleanly with agy provider
+    assert_eq!(manifest.settings.llm_provider, "agy");
+    let _ = client;
+}

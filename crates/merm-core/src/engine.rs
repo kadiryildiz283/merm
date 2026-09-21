@@ -83,7 +83,10 @@ impl RenderedDiagram {
         let total_width = max_x;
         let total_height = max_y;
 
-        let mut svg = format!(
+        let mut svg = String::with_capacity(32768);
+        use std::fmt::Write as _;
+        let _ = write!(
+            svg,
             r##"<svg xmlns="http://www.w3.org/2000/svg" width="{}" height="{}" viewBox="0 0 {} {}">"##,
             total_width, total_height, total_width, total_height
         );

@@ -86,7 +86,7 @@ impl Advisor {
         manifest: &ProjectManifest,
         diagram_source: &str,
     ) -> Result<CheckReport, CoreError> {
-        let llm = LlmClient::from_settings(&manifest.settings);
+        let llm = LlmClient::from_manifest(manifest);
         Self::run_check_with_provider(manifest, diagram_source, &llm).await
     }
 
@@ -99,30 +99,37 @@ impl Advisor {
         let compat = RustScanner::verify_diagram_compatibility(diagram_source, &scan_report);
 
         // Run cargo check if Cargo project, otherwise verify file integrity
-        let (compilation_success, compile_msg) = if manifest.project_root.join("Cargo.toml").is_file() {
-            let cargo_check = StdCommand::new("cargo")
-                .current_dir(&manifest.project_root)
-                .arg("check")
-                .output();
+        let (compilation_success, compile_msg) =
+            if manifest.project_root.join("Cargo.toml").is_file() {
+                let cargo_check = StdCommand::new("cargo")
+                    .current_dir(&manifest.project_root)
+                    .arg("check")
+                    .output();
 
-            match cargo_check {
-                Ok(out) => {
-                    let success = out.status.success();
-                    let msg = if success {
-                        "cargo check passed with 0 errors".to_string()
-                    } else {
-                        format!(
-                            "cargo check failed: {}",
-                            String::from_utf8_lossy(&out.stderr)
-                        )
-                    };
-                    (success, msg)
+                match cargo_check {
+                    Ok(out) => {
+                        let success = out.status.success();
+                        let msg = if success {
+                            "cargo check passed with 0 errors".to_string()
+                        } else {
+                            format!(
+                                "cargo check failed: {}",
+                                String::from_utf8_lossy(&out.stderr)
+                            )
+                        };
+                        (success, msg)
+                    }
+                    Err(e) => (false, format!("Failed to run cargo check: {}", e)),
                 }
-                Err(e) => (false, format!("Failed to run cargo check: {}", e)),
-            }
-        } else {
-            (true, format!("Project root verified ({} files scanned)", scan_report.files.len()))
-        };
+            } else {
+                (
+                    true,
+                    format!(
+                        "Project root verified ({} files scanned)",
+                        scan_report.files.len()
+                    ),
+                )
+            };
 
         let mut diagnostics = compat.diagnostics.clone();
         diagnostics.push(format!("Build check: {}", compile_msg));
@@ -158,7 +165,7 @@ impl Advisor {
         diagram_source: &str,
         user_prompt: &str,
     ) -> Result<AdviceProposal, CoreError> {
-        let llm = LlmClient::from_settings(&manifest.settings);
+        let llm = LlmClient::from_manifest(manifest);
         Self::request_advice_with_provider(manifest, diagram_source, user_prompt, &llm).await
     }
 
@@ -422,7 +429,7 @@ or embed a JSON block conforming to {"files": [{"path": "src/...", "content": ".
         diagram_source: &str,
         user_prompt: &str,
     ) -> Result<(String, Option<String>), CoreError> {
-        let llm = LlmClient::from_settings(&manifest.settings);
+        let llm = LlmClient::from_manifest(manifest);
         Self::execute_ai_with_provider(manifest, diagram_source, user_prompt, &llm).await
     }
 

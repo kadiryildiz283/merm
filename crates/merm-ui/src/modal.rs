@@ -8,12 +8,18 @@ pub enum UiMode {
     NodeTest,
     Report,
     Inspector,
+    NodeEdit,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum UiAction {
-    Pan { dx: f32, dy: f32 },
-    Zoom { factor: f32 },
+    Pan {
+        dx: f32,
+        dy: f32,
+    },
+    Zoom {
+        factor: f32,
+    },
     ResetView,
     PivotDirection,
     CycleTheme,
@@ -21,8 +27,18 @@ pub enum UiAction {
     SelectNextNode,
     SelectPrevNode,
     ExecuteCommand(String),
-    ExecuteNodeTest { node_id: String, input: String },
+    ExecuteNodeTest {
+        node_id: String,
+        input: String,
+    },
     OpenEditor(String),
+    DeleteSelectedNode,
+    OpenNodeEditor(String),
+    SaveNodeEdit {
+        node_id: String,
+        stereotype: Option<String>,
+        members: Vec<String>,
+    },
     Reload,
     Quit,
     None,
@@ -35,6 +51,12 @@ pub struct ModalController {
     pub test_input_buffer: String,
     pub active_test_node_id: Option<String>,
     pub report_scroll_offset: usize,
+
+    // Node inline editor state
+    pub edit_node_id: String,
+    pub edit_stereotype: String,
+    pub edit_members: Vec<String>,
+    pub edit_input_buffer: String,
 }
 
 impl Default for ModalController {
@@ -46,6 +68,10 @@ impl Default for ModalController {
             test_input_buffer: String::new(),
             active_test_node_id: None,
             report_scroll_offset: 0,
+            edit_node_id: String::new(),
+            edit_stereotype: String::new(),
+            edit_members: Vec::new(),
+            edit_input_buffer: String::new(),
         }
     }
 }
@@ -65,6 +91,9 @@ impl ModalController {
                 't' => {
                     if has_selected_node {
                         self.mode = UiMode::NodeTest;
+                        if self.test_input_buffer.trim().is_empty() {
+                            self.test_input_buffer = "{}".to_string();
+                        }
                         UiAction::SetMode(UiMode::NodeTest)
                     } else {
                         UiAction::CycleTheme
@@ -101,7 +130,10 @@ impl ModalController {
                     self.command_buffer = ":connect ".to_string();
                     UiAction::SetMode(UiMode::Command)
                 }
-                'e' => {
+                'e' | 'E' => {
+                    UiAction::OpenNodeEditor(self.active_test_node_id.clone().unwrap_or_default())
+                }
+                'g' => {
                     if has_selected_node {
                         UiAction::OpenEditor(String::new())
                     } else {
@@ -121,9 +153,58 @@ impl ModalController {
                         UiAction::None
                     }
                 }
+                '\n' | '\r' => {
+                    if has_selected_node {
+                        UiAction::OpenNodeEditor(
+                            self.active_test_node_id.clone().unwrap_or_default(),
+                        )
+                    } else {
+                        UiAction::None
+                    }
+                }
+                'x' => {
+                    if has_selected_node {
+                        UiAction::DeleteSelectedNode
+                    } else {
+                        UiAction::None
+                    }
+                }
+                'y' | 'Y' => UiAction::ExecuteCommand(":copy".to_string()),
                 'q' => UiAction::Quit,
                 _ => UiAction::None,
             },
+            UiMode::NodeEdit => {
+                if key == '\x1b' {
+                    self.mode = UiMode::Normal;
+                    UiAction::SetMode(UiMode::Normal)
+                } else if key == '\n' || key == '\r' {
+                    if !self.edit_input_buffer.trim().is_empty() {
+                        self.edit_members
+                            .push(self.edit_input_buffer.trim().to_string());
+                        self.edit_input_buffer.clear();
+                        UiAction::None
+                    } else {
+                        let node_id = self.edit_node_id.clone();
+                        let stereotype = if self.edit_stereotype.trim().is_empty() {
+                            None
+                        } else {
+                            Some(self.edit_stereotype.trim().to_string())
+                        };
+                        let members = self.edit_members.clone();
+                        self.mode = UiMode::Normal;
+                        UiAction::SaveNodeEdit {
+                            node_id,
+                            stereotype,
+                            members,
+                        }
+                    }
+                } else if key == '\x08' {
+                    self.handle_backspace()
+                } else {
+                    self.edit_input_buffer.push(key);
+                    UiAction::None
+                }
+            }
             UiMode::Command => {
                 if key == '\x1b' {
                     // Escape
@@ -135,6 +216,35 @@ impl ModalController {
                     self.mode = UiMode::Normal;
                     self.command_buffer.clear();
                     UiAction::ExecuteCommand(cmd)
+                } else if key == '\t' {
+                    // Auto-complete or populate default prompt template
+                    let trimmed = self.command_buffer.trim();
+                    if trimmed == "&advice" || trimmed == "&adv" {
+                        self.command_buffer = "&advice Analyze architecture, module cohesion, and refactoring opportunities".to_string();
+                    } else if trimmed == "&ai" {
+                        self.command_buffer = "&ai Scaffold missing module bindings and verify Rust files against diagram".to_string();
+                    } else if trimmed == "&agy" || trimmed == "&antigravity" {
+                        self.command_buffer =
+                            "&agy Review workspace architecture against clean code principles"
+                                .to_string();
+                    } else if trimmed == ":add" || trimmed == "add" {
+                        self.command_buffer = ":add class NewComponent".to_string();
+                    } else if trimmed == ":connect" || trimmed == "connect" {
+                        self.command_buffer = ":connect NodeA NodeB".to_string();
+                    } else if trimmed == ":theme" || trimmed == "theme" {
+                        self.command_buffer = ":theme monokai".to_string();
+                    } else if trimmed == ":test" || trimmed == "test" {
+                        if let Some(ref nid) = self.active_test_node_id {
+                            self.command_buffer = format!(":test {} {{}}", nid);
+                        } else {
+                            self.command_buffer = ":test node_id {}".to_string();
+                        }
+                    } else if trimmed == "&" {
+                        self.command_buffer = "&advice ".to_string();
+                    } else if trimmed == ":" {
+                        self.command_buffer = ":help".to_string();
+                    }
+                    UiAction::None
                 } else if key == '\x08' {
                     self.handle_backspace()
                 } else {
@@ -148,7 +258,12 @@ impl ModalController {
                     UiAction::SetMode(UiMode::Normal)
                 } else if key == '\n' || key == '\r' {
                     let node_id = self.active_test_node_id.clone().unwrap_or_default();
-                    let input = self.test_input_buffer.clone();
+                    let input = if self.test_input_buffer.trim().is_empty() {
+                        "{}".to_string()
+                    } else {
+                        self.test_input_buffer.clone()
+                    };
+                    self.mode = UiMode::Normal;
                     UiAction::ExecuteNodeTest { node_id, input }
                 } else if key == '\x08' {
                     self.handle_backspace()
@@ -172,7 +287,15 @@ impl ModalController {
                 if key == '\x1b' || key == 'q' || key == '\n' || key == '\r' {
                     self.mode = UiMode::Normal;
                     UiAction::SetMode(UiMode::Normal)
-                } else if key == 'e' {
+                } else if key == 'e' || key == 'E' {
+                    if has_selected_node {
+                        UiAction::OpenNodeEditor(
+                            self.active_test_node_id.clone().unwrap_or_default(),
+                        )
+                    } else {
+                        UiAction::None
+                    }
+                } else if key == 'g' {
                     if has_selected_node {
                         UiAction::OpenEditor(String::new())
                     } else {
@@ -227,6 +350,8 @@ impl ModalController {
                     UiAction::SetMode(UiMode::Command)
                 }
                 'o' => UiAction::ExecuteCommand("&ok".to_string()),
+                'y' | 'Y' => UiAction::ExecuteCommand(":copy".to_string()),
+                's' | '\x17' => UiAction::ExecuteCommand(":split".to_string()),
                 'q' | '\x1b' => {
                     self.mode = UiMode::Normal;
                     UiAction::SetMode(UiMode::Normal)
@@ -263,8 +388,29 @@ impl ModalController {
                 self.search_query.pop();
                 UiAction::None
             }
+            UiMode::NodeEdit => {
+                if !self.edit_input_buffer.is_empty() {
+                    self.edit_input_buffer.pop();
+                } else if !self.edit_members.is_empty() {
+                    self.edit_input_buffer = self.edit_members.pop().unwrap_or_default();
+                }
+                UiAction::None
+            }
             _ => UiAction::None,
         }
+    }
+
+    pub fn start_node_edit(
+        &mut self,
+        node_id: String,
+        stereotype: Option<String>,
+        members: Vec<String>,
+    ) {
+        self.mode = UiMode::NodeEdit;
+        self.edit_node_id = node_id;
+        self.edit_stereotype = stereotype.unwrap_or_default();
+        self.edit_members = members;
+        self.edit_input_buffer.clear();
     }
 }
 
@@ -306,6 +452,11 @@ mod tests {
 
         assert_eq!(
             controller.handle_key('e', true),
+            UiAction::OpenNodeEditor(String::new())
+        );
+
+        assert_eq!(
+            controller.handle_key('g', true),
             UiAction::OpenEditor(String::new())
         );
 
@@ -403,4 +554,3 @@ mod tests {
         assert!(controller.command_buffer.is_empty());
     }
 }
-

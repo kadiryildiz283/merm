@@ -180,31 +180,62 @@ impl LlmProvider for MockLlmProvider {
 pub struct AgyLlmProvider {
     bin_path: PathBuf,
     model: Option<String>,
+    project_root: Option<PathBuf>,
 }
 
 impl AgyLlmProvider {
     pub fn new(model: Option<String>) -> Self {
+        Self::new_with_root(model, None)
+    }
+
+    pub fn new_with_root(model: Option<String>, project_root: Option<PathBuf>) -> Self {
         let bin_path = Self::find_agy_bin().unwrap_or_else(|| PathBuf::from("agy"));
-        Self { bin_path, model }
+        Self {
+            bin_path,
+            model,
+            project_root,
+        }
     }
 
     pub fn with_bin_path(bin_path: PathBuf, model: Option<String>) -> Self {
-        Self { bin_path, model }
+        Self {
+            bin_path,
+            model,
+            project_root: None,
+        }
+    }
+
+    pub fn with_project_root(mut self, root: PathBuf) -> Self {
+        self.project_root = Some(root);
+        self
     }
 
     pub fn find_agy_bin() -> Option<PathBuf> {
-        if let Ok(path) = std::env::var("PATH") {
-            for dir in std::env::split_paths(&path) {
-                let candidate = dir.join("agy");
-                if candidate.is_file() {
-                    return Some(candidate);
-                }
+        if let Ok(env_path) = std::env::var("AGY_BIN_PATH") {
+            let p = PathBuf::from(env_path);
+            if p.is_file() {
+                return Some(p);
+            }
+        }
+        let static_candidates = ["/usr/local/bin/agy", "/usr/bin/agy"];
+        for sc in &static_candidates {
+            let p = PathBuf::from(sc);
+            if p.is_file() {
+                return Some(p);
             }
         }
         if let Ok(home) = std::env::var("HOME") {
             let candidate = Path::new(&home).join(".local/bin/agy");
             if candidate.is_file() {
                 return Some(candidate);
+            }
+        }
+        if let Ok(path) = std::env::var("PATH") {
+            for dir in std::env::split_paths(&path) {
+                let candidate = dir.join("agy");
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
             }
         }
         None
@@ -230,13 +261,17 @@ impl LlmProvider for AgyLlmProvider {
         );
         let bin = self.bin_path.clone();
         let model_opt = self.model.clone();
+        let project_root_opt = self.project_root.clone();
 
         Box::pin(async move {
             let mut cmd = tokio::process::Command::new(&bin);
+            if let Some(ref root) = project_root_opt {
+                cmd.current_dir(root);
+            }
             cmd.arg("-p")
                 .arg(&full_prompt)
                 .arg("--output-format")
-                .arg("json")
+                .arg("text")
                 .arg("--disable-slash-commands")
                 .arg("--dangerously-skip-permissions");
 
@@ -254,23 +289,58 @@ impl LlmProvider for AgyLlmProvider {
                 ))
             })?;
 
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
+            if output.status.success() {
+                let raw_stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !raw_stdout.is_empty() {
+                    return Ok(raw_stdout);
+                }
+            }
+
+            // Fallback to JSON format if text format produced nothing or exited with error
+            let mut json_cmd = tokio::process::Command::new(&bin);
+            if let Some(ref root) = project_root_opt {
+                json_cmd.current_dir(root);
+            }
+            json_cmd
+                .arg("-p")
+                .arg(&full_prompt)
+                .arg("--output-format")
+                .arg("json")
+                .arg("--disable-slash-commands")
+                .arg("--dangerously-skip-permissions");
+
+            if let Some(ref m) = model_opt {
+                if m != "inherit" && !m.is_empty() {
+                    json_cmd.arg("--model").arg(m);
+                }
+            }
+
+            let json_output = json_cmd.output().await.map_err(|e| {
+                CoreError::LayoutFailed(format!(
+                    "Failed to execute Antigravity CLI ('{}'): {}",
+                    bin.display(),
+                    e
+                ))
+            })?;
+
+            if !json_output.status.success() {
+                let stderr = String::from_utf8_lossy(&json_output.stderr);
                 return Err(CoreError::LayoutFailed(format!(
                     "Antigravity CLI (agy) exited with code {:?}: {}",
-                    output.status.code(),
+                    json_output.status.code(),
                     stderr.trim()
                 )));
             }
 
-            let raw_stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let raw_stdout = String::from_utf8_lossy(&json_output.stdout)
+                .trim()
+                .to_string();
             if raw_stdout.is_empty() {
                 return Err(CoreError::LayoutFailed(
                     "Antigravity CLI (agy) returned empty output".to_string(),
                 ));
             }
 
-            // Extract the clean response payload from the agy JSON envelope
             if let Ok(envelope) = serde_json::from_str::<AgyJsonEnvelope>(&raw_stdout) {
                 if let Some(resp) = envelope.response {
                     let cleaned = resp.trim().to_string();
@@ -281,6 +351,52 @@ impl LlmProvider for AgyLlmProvider {
             }
 
             Ok(raw_stdout)
+        })
+    }
+}
+
+/// Provider that tries a primary provider first, and falls back to a secondary provider upon failure
+pub struct FallbackLlmProvider {
+    primary: Box<dyn LlmProvider>,
+    secondary: Box<dyn LlmProvider>,
+    secondary_name: String,
+}
+
+impl FallbackLlmProvider {
+    pub fn new(
+        primary: Box<dyn LlmProvider>,
+        secondary: Box<dyn LlmProvider>,
+        secondary_name: impl Into<String>,
+    ) -> Self {
+        Self {
+            primary,
+            secondary,
+            secondary_name: secondary_name.into(),
+        }
+    }
+}
+
+impl LlmProvider for FallbackLlmProvider {
+    fn query(
+        &self,
+        system_prompt: &str,
+        user_prompt: &str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, CoreError>> + Send + '_>>
+    {
+        let sys = system_prompt.to_string();
+        let usr = user_prompt.to_string();
+        Box::pin(async move {
+            match self.primary.query(&sys, &usr).await {
+                Ok(resp) => Ok(resp),
+                Err(err) => {
+                    log::warn!(
+                        "Primary LLM provider failed ({}); falling back to {}...",
+                        err,
+                        self.secondary_name
+                    );
+                    self.secondary.query(&sys, &usr).await
+                }
+            }
         })
     }
 }
@@ -301,7 +417,18 @@ impl LlmClient {
         Self { provider }
     }
 
+    pub fn from_manifest(manifest: &crate::manifest::ProjectManifest) -> Self {
+        Self::from_settings_with_root(&manifest.settings, Some(manifest.project_root.clone()))
+    }
+
     pub fn from_settings(settings: &ProjectSettings) -> Self {
+        Self::from_settings_with_root(settings, None)
+    }
+
+    pub fn from_settings_with_root(
+        settings: &ProjectSettings,
+        project_root: Option<PathBuf>,
+    ) -> Self {
         match settings.llm_provider.to_lowercase().as_str() {
             "agy" | "antigravity" => {
                 let model = if settings.llm_model.is_empty() || settings.llm_model == "inherit" {
@@ -310,7 +437,7 @@ impl LlmClient {
                     Some(settings.llm_model.clone())
                 };
                 Self {
-                    provider: Box::new(AgyLlmProvider::new(model)),
+                    provider: Box::new(AgyLlmProvider::new_with_root(model, project_root)),
                 }
             }
             "openai" => {
@@ -319,21 +446,65 @@ impl LlmClient {
                 } else {
                     settings.llm_endpoint.clone()
                 };
-                Self {
-                    provider: Box::new(HttpLlmProvider::with_key(
-                        endpoint,
-                        settings.llm_model.clone(),
-                        settings.llm_api_key.clone(),
-                    )),
+                let primary = Box::new(HttpLlmProvider::with_key(
+                    endpoint,
+                    settings.llm_model.clone(),
+                    settings.llm_api_key.clone(),
+                ));
+                if AgyLlmProvider::find_agy_bin().is_some() {
+                    let agy = Box::new(AgyLlmProvider::new_with_root(None, project_root));
+                    Self {
+                        provider: Box::new(FallbackLlmProvider::new(
+                            primary,
+                            agy,
+                            "Antigravity CLI (agy)",
+                        )),
+                    }
+                } else {
+                    Self { provider: primary }
                 }
             }
-            _ => Self {
-                provider: Box::new(HttpLlmProvider::with_key(
+            "ollama" => {
+                if AgyLlmProvider::find_agy_bin().is_some() {
+                    // When agy is present on machine, use agy as priority provider for ollama config
+                    let agy = Box::new(AgyLlmProvider::new_with_root(None, project_root.clone()));
+                    let primary = Box::new(HttpLlmProvider::with_key(
+                        settings.llm_endpoint.clone(),
+                        settings.llm_model.clone(),
+                        settings.llm_api_key.clone(),
+                    ));
+                    Self {
+                        provider: Box::new(FallbackLlmProvider::new(agy, primary, "Ollama")),
+                    }
+                } else {
+                    Self {
+                        provider: Box::new(HttpLlmProvider::with_key(
+                            settings.llm_endpoint.clone(),
+                            settings.llm_model.clone(),
+                            settings.llm_api_key.clone(),
+                        )),
+                    }
+                }
+            }
+            _ => {
+                let primary = Box::new(HttpLlmProvider::with_key(
                     settings.llm_endpoint.clone(),
                     settings.llm_model.clone(),
                     settings.llm_api_key.clone(),
-                )),
-            },
+                ));
+                if AgyLlmProvider::find_agy_bin().is_some() {
+                    let agy = Box::new(AgyLlmProvider::new_with_root(None, project_root));
+                    Self {
+                        provider: Box::new(FallbackLlmProvider::new(
+                            primary,
+                            agy,
+                            "Antigravity CLI (agy)",
+                        )),
+                    }
+                } else {
+                    Self { provider: primary }
+                }
+            }
         }
     }
 
@@ -365,5 +536,25 @@ mod tests {
         let client = LlmClient::from_provider(Box::new(mock));
         let res = client.query("system", "user").await.unwrap();
         assert_eq!(res, "Deterministic answer");
+    }
+
+    #[tokio::test]
+    async fn test_fallback_llm_provider() {
+        let primary_mock = MockLlmProvider::new();
+        primary_mock.enqueue_response(Err(CoreError::LayoutFailed(
+            "Connection refused".to_string(),
+        )));
+
+        let secondary_mock = MockLlmProvider::new();
+        secondary_mock.enqueue_response(Ok("Fallback success from secondary".to_string()));
+
+        let fallback = FallbackLlmProvider::new(
+            Box::new(primary_mock),
+            Box::new(secondary_mock),
+            "SecondaryMock",
+        );
+
+        let res = fallback.query("sys", "user").await.unwrap();
+        assert_eq!(res, "Fallback success from secondary");
     }
 }

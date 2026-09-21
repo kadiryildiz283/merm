@@ -198,4 +198,73 @@ fn test_command_parser_suite() {
             input: Some("{\"test\":1}".to_string()),
         }
     );
+    assert_eq!(
+        Command::parse(":rm PaymentEngine"),
+        Command::Remove {
+            name: "PaymentEngine".to_string(),
+        }
+    );
+    assert_eq!(
+        Command::parse(":edit AuthService"),
+        Command::Edit {
+            node_id: Some("AuthService".to_string()),
+        }
+    );
+    assert_eq!(Command::parse(":edit"), Command::Edit { node_id: None });
+}
+
+#[test]
+fn test_node_removal_and_updating() {
+    let initial_diagram = r#"classDiagram
+    direction TD
+    class AuthService {
+        +login()
+    }
+    class PaymentEngine {
+        +pay()
+    }
+    AuthService --> PaymentEngine : authorizes
+"#;
+
+    // Test update_node_in_diagram
+    let updated = Scaffolder::update_node_in_diagram(
+        initial_diagram,
+        "AuthService",
+        Some("service"),
+        &["+token: String".to_string(), "+login() -> bool".to_string()],
+    );
+    assert!(updated.contains("class AuthService {"));
+    assert!(updated.contains("<<service>>"));
+    assert!(updated.contains("+token: String"));
+    assert!(updated.contains("+login() -> bool"));
+
+    // Test remove_node_from_diagram
+    let removed = Scaffolder::remove_node_from_diagram(&updated, "PaymentEngine");
+    assert!(!removed.contains("class PaymentEngine"));
+    assert!(!removed.contains("PaymentEngine"));
+    assert!(!removed.contains("authorizes"));
+    assert!(removed.contains("class AuthService"));
+}
+
+#[test]
+fn test_default_input_output_enforcement() {
+    let mut manifest = ProjectManifest::new(PathBuf::from("."), "test-proj".to_string());
+
+    // Adding binding without explicit input/output should default to "{}" and "1"
+    manifest.add_binding(NodeBinding {
+        id: "VoidNode".to_string(),
+        file: "src/void.rs".to_string(),
+        symbol: "VoidNode".to_string(),
+        kind: "struct".to_string(),
+        executable: true,
+        entrypoint: Some("run".to_string()),
+        input_type: None,
+        output_type: None,
+    });
+
+    let b = manifest
+        .get_binding("VoidNode")
+        .expect("Binding must exist");
+    assert_eq!(b.input_type.as_deref(), Some("{}"));
+    assert_eq!(b.output_type.as_deref(), Some("1"));
 }

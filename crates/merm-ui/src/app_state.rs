@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::process::Command as StdCommand;
 use std::time::Duration;
 
+use crate::clipboard::copy_to_clipboard;
 use crate::modal::{ModalController, UiAction, UiMode};
 use crate::worker::{AsyncWorker, WorkerResult, WorkerTask};
 
@@ -40,7 +41,7 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(source: String, force_software_render: bool) -> Self {
-        Self::with_theme(source, force_software_render, ThemeId::CatppuccinMocha)
+        Self::with_theme(source, force_software_render, ThemeId::Monokai)
     }
 
     pub fn with_theme(source: String, force_software_render: bool, theme: ThemeId) -> Self {
@@ -128,11 +129,22 @@ impl AppState {
             Ok(diagram) => {
                 self.transform
                     .fit_to_viewport(diagram.width, diagram.height, 1280.0, 720.0);
+                let first_opt = diagram
+                    .nodes
+                    .first()
+                    .map(|n| (n.id.clone(), n.label.clone()));
                 self.current_diagram = Some(diagram);
-                self.status_message = format!(
-                    "Loaded diagram (Backend: {:?})",
-                    self.render_engine.active_backend()
-                );
+                if self.active_node_id.is_none() {
+                    if let Some((first_id, first_label)) = first_opt {
+                        self.select_node(Some(&first_id));
+                        self.status_message = format!("Selected: {}", first_label);
+                    }
+                } else {
+                    self.status_message = format!(
+                        "Loaded diagram (Backend: {:?})",
+                        self.render_engine.active_backend()
+                    );
+                }
             }
             Err(e) => {
                 self.status_message = format!("Error calculating layout: {}", e);
@@ -141,6 +153,11 @@ impl AppState {
     }
 
     pub fn show_report(&mut self, text: String) {
+        let prev_lines = self
+            .report_content
+            .as_ref()
+            .map(|c| c.lines().count())
+            .unwrap_or(0);
         if let Some(ref mut content) = self.report_content {
             content.push_str("\n\n");
             content.push_str(&text);
@@ -149,7 +166,7 @@ impl AppState {
         }
         self.show_split_buffer = true;
         self.modal.mode = UiMode::Report;
-        self.modal.report_scroll_offset = 0;
+        self.modal.report_scroll_offset = prev_lines;
     }
 
     pub fn bind_project(&mut self, target_path: Option<&str>) -> Result<(), String> {
@@ -160,7 +177,8 @@ impl AppState {
         };
 
         let project_root = ProjectManifest::detect_project_root(&path);
-        let mut manifest = ProjectManifest::load_or_init(&project_root).map_err(|e| e.to_string())?;
+        let mut manifest =
+            ProjectManifest::load_or_init(&project_root).map_err(|e| e.to_string())?;
 
         // Scan project and auto-bind symbols to manifest
         if let Ok(scan_report) = RustScanner::scan_project(&project_root) {
@@ -177,9 +195,45 @@ impl AppState {
                     },
                     executable: sym.is_executable,
                     entrypoint: sym.primary_entrypoint.clone(),
-                    input_type: Some("String".to_string()),
-                    output_type: Some("String".to_string()),
+                    input_type: Some("{}".to_string()),
+                    output_type: Some("1".to_string()),
                 });
+            }
+
+            // Ensure all nodes from current diagram are in manifest with default I/O
+            if let Some(ref diag) = self.current_diagram {
+                for node in &diag.nodes {
+                    if !manifest.bindings.contains_key(&node.id) {
+                        manifest.add_binding(NodeBinding {
+                            id: node.id.clone(),
+                            file: format!("src/{}.rs", node.id.to_lowercase()),
+                            symbol: node.id.clone(),
+                            kind: "struct".to_string(),
+                            executable: true,
+                            entrypoint: Some("run".to_string()),
+                            input_type: Some("{}".to_string()),
+                            output_type: Some("1".to_string()),
+                        });
+                    }
+                }
+            }
+
+            // Guarantee every binding has non-empty default input and output
+            for binding in manifest.bindings.values_mut() {
+                if binding
+                    .input_type
+                    .as_ref()
+                    .is_none_or(|s| s.trim().is_empty())
+                {
+                    binding.input_type = Some("{}".to_string());
+                }
+                if binding
+                    .output_type
+                    .as_ref()
+                    .is_none_or(|s| s.trim().is_empty())
+                {
+                    binding.output_type = Some("1".to_string());
+                }
             }
             let _ = manifest.save();
 
@@ -255,6 +309,15 @@ impl AppState {
                 }
             }
             Command::Advice { prompt } => {
+                let prompt = if prompt.trim().is_empty() {
+                    if let Some(ref node) = self.active_node_id {
+                        format!("Analyze node '{}', its responsibilities, dependencies, and propose modular architectural improvements.", node)
+                    } else {
+                        "Analyze the architecture diagram, verify domain cohesion and coupling, and recommend architectural improvements.".to_string()
+                    }
+                } else {
+                    prompt
+                };
                 if self.manifest.is_none() {
                     let _ = self.bind_project(None);
                 }
@@ -323,30 +386,56 @@ impl AppState {
                                     self.recalculate_diagram();
                                 }
                                 self.pending_advice = None;
+                                self.show_report(format!(
+                                    "=== Architectural Advice Applied ===\nStatus: SUCCESS\n{}\nType `:w` to persist changes.",
+                                    msg
+                                ));
                             }
                             Err(e) => {
                                 self.status_message = format!("&ok rollback: {}", e);
+                                self.show_report(format!(
+                                    "=== Architectural Advice Rollback ===\nStatus: FAILED\nRollback occurred: {}",
+                                    e
+                                ));
                             }
                         }
                     } else if let Some(ref new_diag) = proposal.suggested_diagram {
                         self.diagram_source = new_diag.clone();
                         self.recalculate_diagram();
-                        self.status_message =
+                        let msg =
                             "&ok: Mermaid diagram updated on canvas from proposal.".to_string();
+                        self.status_message = msg.clone();
                         self.pending_advice = None;
+                        self.show_report(format!(
+                            "=== Architectural Advice Applied ===\nStatus: SUCCESS\n{}",
+                            msg
+                        ));
                     } else {
-                        self.status_message =
-                            "&ok: Advice contained architectural guidance without mutations."
-                                .to_string();
+                        let msg = "&ok: Advice contained architectural guidance without mutations."
+                            .to_string();
+                        self.status_message = msg.clone();
                         self.pending_advice = None;
+                        self.show_report(format!(
+                            "=== Architectural Advice Processed ===\nStatus: SUCCESS\n{}",
+                            msg
+                        ));
                     }
                 } else {
-                    self.status_message =
-                        "No pending advice to apply. Run `&advice <QUERY>` or `&agy <QUERY>` first."
-                            .to_string();
+                    let msg = "No pending advice to apply. Run `&advice <QUERY>` or `&agy <QUERY>` first.".to_string();
+                    self.status_message = msg.clone();
+                    self.show_report(format!("=== Command: &ok ===\nStatus: WARNING\n{}", msg));
                 }
             }
             Command::Ai { prompt } => {
+                let prompt = if prompt.trim().is_empty() {
+                    if let Some(ref node) = self.active_node_id {
+                        format!("Scaffold implementation, types, and test harness for node '{}' matching diagram specifications.", node)
+                    } else {
+                        "Verify diagram nodes against Rust project files and scaffold missing module bindings.".to_string()
+                    }
+                } else {
+                    prompt
+                };
                 if self.manifest.is_none() {
                     let _ = self.bind_project(None);
                 }
@@ -390,6 +479,15 @@ impl AppState {
                 }
             }
             Command::Agy { prompt } => {
+                let prompt = if prompt.trim().is_empty() {
+                    if let Some(ref node) = self.active_node_id {
+                        format!("Perform deep architecture review and code quality assessment for node '{}' using Google Antigravity.", node)
+                    } else {
+                        "Review workspace architecture against clean code principles, test coverage, and scalable design using Google Antigravity.".to_string()
+                    }
+                } else {
+                    prompt
+                };
                 if self.manifest.is_none() {
                     let _ = self.bind_project(None);
                 }
@@ -611,12 +709,23 @@ impl AppState {
             Command::Connect { from, to, label } => {
                 self.connect_nodes(&from, &to, label.as_deref());
             }
+            Command::Remove { name } => {
+                self.remove_node(&name);
+            }
+            Command::Edit { node_id } => {
+                self.open_node_editor(node_id.as_deref());
+            }
             Command::Test { node_id, input } => {
-                let target_node = node_id.or_else(|| self.active_node_id.clone());
+                let target_node = node_id.or_else(|| self.active_node_id.clone()).or_else(|| {
+                    self.current_diagram
+                        .as_ref()
+                        .and_then(|d| d.nodes.first().map(|n| n.id.clone()))
+                });
                 if let Some(nid) = target_node {
-                    self.execute_node_test(&nid, input.as_deref().unwrap_or(""));
+                    let input_payload = input.unwrap_or_else(|| "{}".to_string());
+                    self.execute_node_test(&nid, &input_payload);
                 } else {
-                    self.status_message = "No node selected or specified for testing.".to_string();
+                    self.status_message = "No node selected or found for testing.".to_string();
                 }
             }
             Command::Help => {
@@ -641,11 +750,13 @@ Keybindings (NORMAL mode):
   T       - Cycle theme
   a / o   - Add new class / struct
   c       - Connect nodes
-  e       - Open bound Rust file in $EDITOR
+  e / E   - Open interactive Node Editor drawer
+  g       - Open bound Rust source file in $EDITOR
   h,j,k,l - Pan diagram
   +, -    - Zoom in / out
-  Tab     - Pivot direction (TD -> LR -> BT -> RL)
-  n / N   - Select next / previous node
+  Arrows  - Navigate nodes in 2D direction (Right/Left/Down/Up)
+  Tab / n - Select next node (N: previous node)
+  p       - Pivot direction (TD -> LR -> BT -> RL)
   q / Esc - Quit / close modal
 "#
                     .to_string(),
@@ -755,6 +866,9 @@ Keybindings (NORMAL mode):
                     "Split buffer closed (maximized diagram)".to_string()
                 };
             }
+            Command::Copy => {
+                self.copy_report_to_clipboard();
+            }
             Command::Custom(s) => {
                 if !s.trim().is_empty() {
                     let prompt = s.trim().to_string();
@@ -766,6 +880,27 @@ Keybindings (NORMAL mode):
         }
     }
 
+    pub fn copy_report_to_clipboard(&mut self) -> bool {
+        if let Some(ref text) = self.report_content {
+            if text.trim().is_empty() {
+                self.status_message = "Split buffer is empty.".to_string();
+                return false;
+            }
+            if copy_to_clipboard(text) {
+                let lines = text.lines().count();
+                self.status_message = format!("✔ Copied {} lines to system clipboard!", lines);
+                true
+            } else {
+                self.status_message =
+                    "Failed to copy to clipboard (check wl-clipboard or xclip).".to_string();
+                false
+            }
+        } else {
+            self.status_message = "No split buffer content to copy.".to_string();
+            false
+        }
+    }
+
     pub fn add_node(&mut self, kind: NodeKind, name: &str) {
         self.diagram_source = Scaffolder::add_node_to_diagram(&self.diagram_source, &kind, name);
         self.recalculate_diagram();
@@ -773,18 +908,32 @@ Keybindings (NORMAL mode):
         if let Some(ref mut manifest) = self.manifest {
             match Scaffolder::scaffold_rust_node(manifest, &kind, name) {
                 Ok(rel_path) => {
-                    self.status_message =
-                        format!("Added node '{}' and scaffolded '{}'", name, rel_path);
+                    let msg = format!("Added node '{}' and scaffolded '{}'", name, rel_path);
+                    self.status_message = msg.clone();
+                    self.show_report(format!(
+                        "=== Added Node ===\nNode: {}\nKind: {:?}\nScaffolded: {}\nStatus: SUCCESS\n{}",
+                        name, kind, rel_path, msg
+                    ));
                 }
                 Err(e) => {
-                    self.status_message = format!(
+                    let msg = format!(
                         "Added node '{}' to diagram (scaffolding error: {})",
                         name, e
                     );
+                    self.status_message = msg.clone();
+                    self.show_report(format!(
+                        "=== Added Node ===\nNode: {}\nKind: {:?}\nStatus: WARNING (Diagram updated, scaffolding failed: {})\n{}",
+                        name, kind, e, msg
+                    ));
                 }
             }
         } else {
-            self.status_message = format!("Added node '{}' to diagram", name);
+            let msg = format!("Added node '{}' to diagram", name);
+            self.status_message = msg.clone();
+            self.show_report(format!(
+                "=== Added Node ===\nNode: {}\nKind: {:?}\nStatus: SUCCESS (Diagram updated, no bound project)\n{}",
+                name, kind, msg
+            ));
         }
     }
 
@@ -792,10 +941,113 @@ Keybindings (NORMAL mode):
         self.diagram_source =
             Scaffolder::connect_nodes_in_diagram(&self.diagram_source, from, to, label);
         self.recalculate_diagram();
-        self.status_message = format!("Connected {} --> {}", from, to);
+        let lbl_info = label.map(|l| format!(" [{}]", l)).unwrap_or_default();
+        let msg = format!("Connected {} --> {}{}", from, to, lbl_info);
+        self.status_message = msg.clone();
+        self.show_report(format!("=== Node Connection ===\nStatus: SUCCESS\n{}", msg));
+    }
+
+    pub fn remove_node(&mut self, name: &str) {
+        let target = if name.trim().is_empty() {
+            self.active_node_id.clone()
+        } else {
+            Some(name.trim().to_string())
+        };
+
+        if let Some(node_name) = target {
+            self.diagram_source =
+                Scaffolder::remove_node_from_diagram(&self.diagram_source, &node_name);
+            self.recalculate_diagram();
+            self.active_node_id = None;
+            let msg = format!("Removed node '{}' and associated connections.", node_name);
+            self.status_message = msg.clone();
+            self.show_report(format!(
+                "=== Node Removed ===\nNode: {}\nStatus: SUCCESS\n{}",
+                node_name, msg
+            ));
+        } else {
+            self.status_message = "No node specified or selected to remove.".to_string();
+        }
+    }
+
+    pub fn open_node_editor(&mut self, node_id: Option<&str>) {
+        let target_id = node_id
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.to_string())
+            .or_else(|| self.active_node_id.clone())
+            .or_else(|| {
+                self.current_diagram
+                    .as_ref()
+                    .and_then(|d| d.nodes.first().map(|n| n.id.clone()))
+            });
+
+        if let Some(id) = target_id {
+            self.select_node(Some(&id));
+            // Find existing node info if available
+            let (stereotype, members) = if let Some(ref diag) = self.current_diagram {
+                if let Some(node) = diag.nodes.iter().find(|n| n.id == id || n.label == id) {
+                    let mut mems = Vec::new();
+                    for attr in &node.attributes {
+                        let type_str = attr
+                            .type_name
+                            .as_ref()
+                            .map(|t| format!(": {}", t))
+                            .unwrap_or_default();
+                        mems.push(format!("{}{}{}", attr.visibility, attr.name, type_str));
+                    }
+                    for meth in &node.methods {
+                        let ret_str = meth
+                            .type_name
+                            .as_ref()
+                            .map(|t| format!("() -> {}", t))
+                            .unwrap_or_else(|| "()".to_string());
+                        mems.push(format!("{}{}{}", meth.visibility, meth.name, ret_str));
+                    }
+                    (node.stereotype.clone(), mems)
+                } else {
+                    (None, Vec::new())
+                }
+            } else {
+                (None, Vec::new())
+            };
+
+            self.modal.start_node_edit(id.clone(), stereotype, members);
+            self.status_message = format!(
+                "Editing node '{}' (Enter adds member or saves empty line, Esc cancels)",
+                id
+            );
+        } else {
+            self.status_message =
+                "No node selected to edit. Select a node or use :edit <NodeName>".to_string();
+        }
+    }
+
+    pub fn save_node_edit(&mut self, node_id: &str, stereotype: Option<&str>, members: &[String]) {
+        self.diagram_source =
+            Scaffolder::update_node_in_diagram(&self.diagram_source, node_id, stereotype, members);
+        self.recalculate_diagram();
+        let msg = format!("Updated node '{}' ({} members).", node_id, members.len());
+        self.status_message = msg.clone();
+        self.show_report(format!(
+            "=== Node Updated ===\nNode: {}\nStereotype: {:?}\nMembers: {}\nStatus: SUCCESS\n{}",
+            node_id,
+            stereotype,
+            members.len(),
+            msg
+        ));
     }
 
     pub fn execute_node_test(&mut self, node_id: &str, input: &str) {
+        if self.manifest.is_none() {
+            let _ = self.bind_project(None);
+        }
+
+        let input_payload = if input.trim().is_empty() {
+            "{}".to_string()
+        } else {
+            input.trim().to_string()
+        };
+
         if let Some(ref manifest) = self.manifest {
             let (file_path, entrypoint) = if let Some(b) = manifest.get_binding(node_id) {
                 (b.file.as_str(), b.entrypoint.as_deref())
@@ -807,41 +1059,51 @@ Keybindings (NORMAL mode):
                 self.is_busy = true;
                 self.busy_message = format!("Testing node '{}'...", node_id);
                 self.status_message = format!(
-                    "Executing node '{}' in background with input '{}'...",
-                    node_id, input
+                    "Executing node '{}' in background (input: '{}')...",
+                    node_id, input_payload
                 );
                 let _ = w.dispatch(WorkerTask::Test {
                     project_root: manifest.project_root.clone(),
                     node_id: node_id.to_string(),
                     file_path: file_path.to_string(),
                     entrypoint: entrypoint.map(|s| s.to_string()),
-                    input: input.to_string(),
+                    input: input_payload,
                 });
                 return;
             }
 
-            self.status_message = format!("Executing node '{}' with input '{}'...", node_id, input);
+            self.status_message = format!(
+                "Executing node '{}' (input: '{}')...",
+                node_id, input_payload
+            );
 
             match NodeRunner::execute_node(
                 &manifest.project_root,
                 node_id,
                 file_path,
                 entrypoint,
-                input,
+                &input_payload,
             ) {
                 Ok(res) => {
                     let status = if res.success { "SUCCESS" } else { "FAILED" };
+                    let output_display =
+                        if res.output_payload.trim().is_empty() || res.output_payload == "()" {
+                            "1".to_string()
+                        } else {
+                            res.output_payload.clone()
+                        };
                     self.status_message = format!(
-                        "Node '{}' [{}] ({}ms): {}",
-                        node_id, status, res.duration_ms, res.output_payload
+                        "Node '{}' [{}] ({}ms): output = {}",
+                        node_id, status, res.duration_ms, output_display
                     );
                     let report_text = format!(
-                        "=== Node Execution Result: {} ===\nStatus: {} (Exit code: {:?})\nDuration: {}ms\n\n[Output Payload]:\n{}\n\n[Stdout]:\n{}\n\n[Stderr]:\n{}",
+                        "=== Node Execution Result: {} ===\nStatus: {} (Exit code: {:?})\nDuration: {}ms\n\n[Default Input]:\n{}\n\n[Output Payload]:\n{}\n\n[Stdout]:\n{}\n\n[Stderr]:\n{}",
                         node_id,
                         status,
                         res.exit_code,
                         res.duration_ms,
-                        res.output_payload,
+                        input_payload,
+                        output_display,
                         res.stdout,
                         res.stderr
                     );
@@ -854,7 +1116,7 @@ Keybindings (NORMAL mode):
             }
         } else {
             self.status_message =
-                "No project bound! Run `&set [PATH]` before testing nodes.".to_string();
+                "No project bound! Run `&set [PATH]` first to test diagram nodes.".to_string();
         }
     }
 
@@ -972,17 +1234,24 @@ Keybindings (NORMAL mode):
             WorkerResult::TestFinished { node_id, result } => match result {
                 Ok(res) => {
                     let status = if res.success { "SUCCESS" } else { "FAILED" };
+                    let output_display =
+                        if res.output_payload.trim().is_empty() || res.output_payload == "()" {
+                            "1".to_string()
+                        } else {
+                            res.output_payload.clone()
+                        };
                     self.status_message = format!(
-                        "Node '{}' [{}] ({}ms): {}",
-                        node_id, status, res.duration_ms, res.output_payload
+                        "Node '{}' [{}] ({}ms): output = {}",
+                        node_id, status, res.duration_ms, output_display
                     );
                     let report_text = format!(
-                        "=== Node Execution Result: {} ===\nStatus: {} (Exit code: {:?})\nDuration: {}ms\n\n[Output Payload]:\n{}\n\n[Stdout]:\n{}\n\n[Stderr]:\n{}",
+                        "=== Node Execution Result: {} ===\nStatus: {} (Exit code: {:?})\nDuration: {}ms\n\n[Default Input]:\n{}\n\n[Output Payload]:\n{}\n\n[Stdout]:\n{}\n\n[Stderr]:\n{}",
                         node_id,
                         status,
                         res.exit_code,
                         res.duration_ms,
-                        res.output_payload,
+                        "{}",
+                        output_display,
                         res.stdout,
                         res.stderr
                     );
@@ -1060,9 +1329,11 @@ Keybindings (NORMAL mode):
                         let cur_idx = self
                             .active_node_id
                             .as_ref()
-                            .and_then(|id| diag.nodes.iter().position(|n| &n.id == id))
-                            .unwrap_or(0);
-                        let next_idx = (cur_idx + 1) % diag.nodes.len();
+                            .and_then(|id| diag.nodes.iter().position(|n| &n.id == id));
+                        let next_idx = match cur_idx {
+                            Some(idx) => (idx + 1) % diag.nodes.len(),
+                            None => 0,
+                        };
                         Some((
                             diag.nodes[next_idx].id.clone(),
                             diag.nodes[next_idx].label.clone(),
@@ -1083,12 +1354,11 @@ Keybindings (NORMAL mode):
                         let cur_idx = self
                             .active_node_id
                             .as_ref()
-                            .and_then(|id| diag.nodes.iter().position(|n| &n.id == id))
-                            .unwrap_or(0);
-                        let prev_idx = if cur_idx == 0 {
-                            diag.nodes.len() - 1
-                        } else {
-                            cur_idx - 1
+                            .and_then(|id| diag.nodes.iter().position(|n| &n.id == id));
+                        let prev_idx = match cur_idx {
+                            Some(0) => diag.nodes.len() - 1,
+                            Some(idx) => idx - 1,
+                            None => diag.nodes.len().saturating_sub(1),
                         };
                         Some((
                             diag.nodes[prev_idx].id.clone(),
@@ -1119,6 +1389,19 @@ Keybindings (NORMAL mode):
             UiAction::Quit => {
                 self.is_running = false;
             }
+            UiAction::DeleteSelectedNode => {
+                self.remove_node("");
+            }
+            UiAction::OpenNodeEditor(id) => {
+                self.open_node_editor(if id.is_empty() { None } else { Some(&id) });
+            }
+            UiAction::SaveNodeEdit {
+                node_id,
+                stereotype,
+                members,
+            } => {
+                self.save_node_edit(&node_id, stereotype.as_deref(), &members);
+            }
             UiAction::SetMode(_) | UiAction::None => {}
         }
     }
@@ -1140,6 +1423,85 @@ Keybindings (NORMAL mode):
         }
         self.active_node_id = node_id.map(|s| s.to_string());
         self.modal.active_test_node_id = node_id.map(|s| s.to_string());
+    }
+
+    pub fn select_directional_node(&mut self, dx: f32, dy: f32) {
+        let (target_id, target_label) = {
+            let diag = match self.current_diagram.as_ref() {
+                Some(d) if !d.nodes.is_empty() => d,
+                _ => return,
+            };
+
+            let cur = self
+                .active_node_id
+                .as_ref()
+                .and_then(|id| diag.nodes.iter().find(|n| &n.id == id));
+
+            if let Some(cur) = cur {
+                let mut best_node: Option<&merm_core::engine::DiagramNode> = None;
+                let mut best_score = f32::MAX;
+
+                for node in &diag.nodes {
+                    if node.id == cur.id {
+                        continue;
+                    }
+                    let diff_x = node.x - cur.x;
+                    let diff_y = node.y - cur.y;
+
+                    let in_direction = if dx > 0.0 {
+                        diff_x > 15.0
+                    } else if dx < 0.0 {
+                        diff_x < -15.0
+                    } else if dy > 0.0 {
+                        diff_y > 15.0
+                    } else if dy < 0.0 {
+                        diff_y < -15.0
+                    } else {
+                        false
+                    };
+
+                    if in_direction {
+                        let score = if dx != 0.0 {
+                            diff_x.abs() + 2.5 * diff_y.abs()
+                        } else {
+                            diff_y.abs() + 2.5 * diff_x.abs()
+                        };
+                        if score < best_score {
+                            best_score = score;
+                            best_node = Some(node);
+                        }
+                    }
+                }
+
+                // If no node in that direction, cycle sequentially
+                let picked = best_node.or_else(|| {
+                    let cur_idx = diag.nodes.iter().position(|n| n.id == cur.id).unwrap_or(0);
+                    if dx > 0.0 || dy > 0.0 {
+                        let next_idx = (cur_idx + 1) % diag.nodes.len();
+                        Some(&diag.nodes[next_idx])
+                    } else {
+                        let prev_idx = if cur_idx == 0 {
+                            diag.nodes.len() - 1
+                        } else {
+                            cur_idx - 1
+                        };
+                        Some(&diag.nodes[prev_idx])
+                    }
+                });
+
+                match picked {
+                    Some(n) => (n.id.clone(), n.label.clone()),
+                    None => return,
+                }
+            } else {
+                // If none is selected, ANY arrow key immediately selects the very first node!
+                let first = &diag.nodes[0];
+                (first.id.clone(), first.label.clone())
+            }
+        };
+
+        self.select_node(Some(&target_id));
+        self.status_message = format!("Selected: {}", target_label);
     }
 
     pub fn render_current_frame(&mut self) -> Option<merm_render::RenderResult> {

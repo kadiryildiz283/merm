@@ -50,6 +50,113 @@ impl Scaffolder {
         out
     }
 
+    /// Removes a node and its relationships from the diagram source
+    pub fn remove_node_from_diagram(diagram_source: &str, node_id: &str) -> String {
+        let mut out = Vec::new();
+        let mut in_target_class = false;
+
+        for line in diagram_source.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("class ")
+                && (trimmed.contains(&format!("class {} ", node_id))
+                    || trimmed.contains(&format!("class {}{}", node_id, '{'))
+                    || trimmed == format!("class {}", node_id))
+            {
+                if trimmed.ends_with('{') {
+                    in_target_class = true;
+                    continue;
+                } else {
+                    continue;
+                }
+            }
+            if in_target_class {
+                if trimmed == "}" {
+                    in_target_class = false;
+                }
+                continue;
+            }
+            if (trimmed.contains("-->")
+                || trimmed.contains("--|>")
+                || trimmed.contains("..>")
+                || trimmed.contains("--*")
+                || trimmed.contains("--o"))
+                && (trimmed.starts_with(node_id)
+                    || trimmed.contains(&format!(" {} ", node_id))
+                    || trimmed.ends_with(node_id))
+            {
+                continue;
+            }
+            out.push(line);
+        }
+        out.join("\n")
+    }
+
+    /// Updates stereotype and members for a node in the diagram source
+    pub fn update_node_in_diagram(
+        diagram_source: &str,
+        node_id: &str,
+        stereotype: Option<&str>,
+        members: &[String],
+    ) -> String {
+        let mut out = Vec::new();
+        let mut in_target_class = false;
+        let mut replaced = false;
+
+        let st_str = if let Some(st) = stereotype {
+            format!("        <<{}>>", st)
+        } else {
+            String::new()
+        };
+
+        let members_str = members
+            .iter()
+            .map(|m| format!("        {}", m))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        for line in diagram_source.lines() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("class ")
+                && (trimmed.contains(&format!("class {} ", node_id))
+                    || trimmed.contains(&format!("class {}{}", node_id, '{'))
+                    || trimmed == format!("class {}", node_id))
+                && trimmed.ends_with('{')
+            {
+                in_target_class = true;
+                out.push(format!("    class {} {{", node_id));
+                if !st_str.is_empty() {
+                    out.push(st_str.clone());
+                }
+                if !members_str.is_empty() {
+                    out.push(members_str.clone());
+                }
+                replaced = true;
+                continue;
+            }
+            if in_target_class {
+                if trimmed == "}" {
+                    in_target_class = false;
+                    out.push("    }".to_string());
+                }
+                continue;
+            }
+            out.push(line.to_string());
+        }
+
+        if !replaced {
+            out.push(format!("    class {} {{", node_id));
+            if !st_str.is_empty() {
+                out.push(st_str);
+            }
+            if !members_str.is_empty() {
+                out.push(members_str);
+            }
+            out.push("    }".to_string());
+        }
+
+        out.join("\n")
+    }
+
     /// Scaffolds the Rust file and registers module in lib.rs / main.rs
     pub fn scaffold_rust_node(
         manifest: &mut ProjectManifest,

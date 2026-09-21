@@ -54,8 +54,8 @@ fn load_theme_from_config() -> Option<ThemeId> {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
             let default_config = r#"# merm configuration file
-# Default theme: catppuccin-mocha, tokyo-night, nord, gruvbox, dracula, monokai, terminal, latte
-theme = "catppuccin-mocha"
+# Default theme: monokai, terminal, catppuccin-mocha, tokyo-night, nord, gruvbox, dracula, latte
+theme = "monokai"
 
 # Default diagram layout direction (TD, LR, RL, BT)
 direction = "TD"
@@ -101,12 +101,14 @@ KEYBINDINGS (NORMAL mode):
     T                    Cycle color themes
     a or o               Add new class / struct
     c                    Connect nodes
-    e                    Open bound Rust source file in $EDITOR
+    e, E                 Open interactive Node Editor drawer
+    g                    Open bound Rust source file in $EDITOR
     h, j, k, l           Pan left, down, up, right
     +, -                 Zoom in, zoom out
     0                    Reset view (fit to screen)
-    p, Tab               Pivot diagram direction (TD -> LR -> RL -> BT)
-    n, N                 Select next / previous node
+    Arrows               Navigate diagram nodes in 2D direction (Right/Left/Down/Up)
+    Tab, n, N            Select next / previous node
+    p                    Pivot diagram direction (TD -> LR -> RL -> BT)
     / or f               Fuzzy search nodes
     Mouse Drag           Move node or pan canvas
     Mouse Wheel          Zoom in / out
@@ -191,10 +193,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         i += 1;
     }
 
-    // Determine active theme (CLI override > Config file > Default Catppuccin Mocha)
+    // Determine active theme (CLI override > Config file > Default Monokai)
     let active_theme = cli_theme
         .or_else(load_theme_from_config)
-        .unwrap_or(ThemeId::CatppuccinMocha);
+        .unwrap_or(ThemeId::Monokai);
 
     // Read diagram content
     let mut bound_dir: Option<String> = None;

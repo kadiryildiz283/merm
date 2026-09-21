@@ -208,6 +208,30 @@ impl ProjectManifest {
                 manifest.settings.llm_api_key = read_env_val(root, "OPENAI_API_KEY")
                     .or_else(|| read_env_val(root, "MERM_LLM_API_KEY"));
             }
+            if manifest.settings.llm_provider == "ollama"
+                && read_env_val(root, "MERM_LLM_PROVIDER").is_none()
+                && which_agy_available()
+            {
+                manifest.settings.llm_provider = "agy".to_string();
+                manifest.settings.llm_model = "inherit".to_string();
+            }
+            // Ensure all bindings have default input "{}" and default output "1"
+            for binding in manifest.bindings.values_mut() {
+                if binding
+                    .input_type
+                    .as_ref()
+                    .is_none_or(|s| s.trim().is_empty())
+                {
+                    binding.input_type = Some("{}".to_string());
+                }
+                if binding
+                    .output_type
+                    .as_ref()
+                    .is_none_or(|s| s.trim().is_empty())
+                {
+                    binding.output_type = Some("1".to_string());
+                }
+            }
             Ok(manifest)
         } else {
             let name = root
@@ -238,7 +262,21 @@ impl ProjectManifest {
         Ok(())
     }
 
-    pub fn add_binding(&mut self, binding: NodeBinding) {
+    pub fn add_binding(&mut self, mut binding: NodeBinding) {
+        if binding
+            .input_type
+            .as_ref()
+            .is_none_or(|s| s.trim().is_empty())
+        {
+            binding.input_type = Some("{}".to_string());
+        }
+        if binding
+            .output_type
+            .as_ref()
+            .is_none_or(|s| s.trim().is_empty())
+        {
+            binding.output_type = Some("1".to_string());
+        }
         self.bindings.insert(binding.id.clone(), binding);
     }
 

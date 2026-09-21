@@ -1,10 +1,26 @@
 use crate::transform::Transform2D;
+use rayon::prelude::*;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
+
+#[derive(Clone)]
+struct CachedDiagramRender {
+    svg_hash: u64,
+    scale: f32,
+    pan_x: f32,
+    pan_y: f32,
+    width: u32,
+    height: u32,
+    bg_color: Option<u32>,
+    pixels: Vec<u32>,
+}
 
 pub struct SvgRasterizer {
     fontdb: Arc<resvg::usvg::fontdb::Database>,
     cached_tree: Mutex<Option<(String, Arc<resvg::usvg::Tree>)>>,
     cached_pixmap: Mutex<Option<resvg::tiny_skia::Pixmap>>,
+    cached_diagram_render: Mutex<Option<CachedDiagramRender>>,
+    cached_overlay_render: Mutex<Option<(u64, u32, u32, resvg::tiny_skia::Pixmap)>>,
 }
 
 impl Default for SvgRasterizer {
@@ -74,6 +90,8 @@ impl SvgRasterizer {
             fontdb: Arc::new(fontdb),
             cached_tree: Mutex::new(None),
             cached_pixmap: Mutex::new(None),
+            cached_diagram_render: Mutex::new(None),
+            cached_overlay_render: Mutex::new(None),
         }
     }
 
@@ -88,6 +106,29 @@ impl SvgRasterizer {
     ) -> Result<(), String> {
         if width == 0 || height == 0 || dest_buffer.len() < (width * height) as usize {
             return Err("Invalid buffer dimensions".to_string());
+        }
+
+        // Fast path: Check diagram raster cache (avoids expensive SVG re-parsing and re-rendering)
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        svg_data.hash(&mut hasher);
+        let svg_hash = hasher.finish();
+
+        {
+            let cache_guard = self.cached_diagram_render.lock().unwrap();
+            if let Some(ref c) = *cache_guard {
+                if c.svg_hash == svg_hash
+                    && (c.scale - transform.scale).abs() < 1e-4
+                    && (c.pan_x - transform.pan_x).abs() < 1e-4
+                    && (c.pan_y - transform.pan_y).abs() < 1e-4
+                    && c.width == width
+                    && c.height == height
+                    && c.bg_color == bg_color
+                    && dest_buffer.len() >= c.pixels.len()
+                {
+                    dest_buffer[..c.pixels.len()].copy_from_slice(&c.pixels);
+                    return Ok(());
+                }
+            }
         }
 
         let tree = {
@@ -160,15 +201,44 @@ impl SvgRasterizer {
         let rgba = pixmap.data();
         let (chunks, _) = rgba.as_chunks::<4>();
         let len = chunks.len().min(dest_buffer.len());
-        for (dst, chunk) in dest_buffer[..len].iter_mut().zip(&chunks[..len]) {
-            *dst = ((chunk[3] as u32) << 24)
-                | ((chunk[0] as u32) << 16)
-                | ((chunk[1] as u32) << 8)
-                | (chunk[2] as u32);
+        dest_buffer[..len]
+            .par_chunks_mut(16384)
+            .zip(chunks[..len].par_chunks(16384))
+            .for_each(|(dst_slice, src_slice)| {
+                for (dst, chunk) in dst_slice.iter_mut().zip(src_slice.iter()) {
+                    *dst = ((chunk[3] as u32) << 24)
+                        | ((chunk[0] as u32) << 16)
+                        | ((chunk[1] as u32) << 8)
+                        | (chunk[2] as u32);
+                }
+            });
+
+        // Cache rendered pixels for instantaneous redraw during typing / split scrolling
+        {
+            let mut cache_guard = self.cached_diagram_render.lock().unwrap();
+            *cache_guard = Some(CachedDiagramRender {
+                svg_hash,
+                scale: transform.scale,
+                pan_x: transform.pan_x,
+                pan_y: transform.pan_y,
+                width,
+                height,
+                bg_color,
+                pixels: dest_buffer[..len].to_vec(),
+            });
         }
 
         *pixmap_guard = Some(pixmap);
         Ok(())
+    }
+
+    pub fn invalidate_cache(&self) {
+        if let Ok(mut g) = self.cached_diagram_render.lock() {
+            *g = None;
+        }
+        if let Ok(mut g) = self.cached_overlay_render.lock() {
+            *g = None;
+        }
     }
 
     pub fn rasterize_overlay(
@@ -182,41 +252,74 @@ impl SvgRasterizer {
             return Err("Invalid buffer dimensions".to_string());
         }
 
-        let opt = resvg::usvg::Options {
-            fontdb: self.fontdb.clone(),
-            ..Default::default()
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        svg_data.hash(&mut hasher);
+        let overlay_hash = hasher.finish();
+
+        // 1. Check if cached overlay pixmap matches
+        let cached_hit = {
+            let guard = self.cached_overlay_render.lock().unwrap();
+            if let Some((h, w, hgt, ref p)) = *guard {
+                if h == overlay_hash && w == width && hgt == height {
+                    Some(p.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
         };
-        let tree = resvg::usvg::Tree::from_str(svg_data, &opt)
-            .map_err(|e| format!("Failed to parse overlay SVG: {}", e))?;
 
-        let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)
-            .ok_or_else(|| "Failed to allocate tiny-skia pixmap".to_string())?;
+        let pixmap = if let Some(p) = cached_hit {
+            p
+        } else {
+            let opt = resvg::usvg::Options {
+                fontdb: self.fontdb.clone(),
+                ..Default::default()
+            };
+            let tree = resvg::usvg::Tree::from_str(svg_data, &opt)
+                .map_err(|e| format!("Failed to parse overlay SVG: {}", e))?;
 
-        let render_ts = resvg::tiny_skia::Transform::identity();
-        resvg::render(&tree, render_ts, &mut pixmap.as_mut());
+            let mut p = resvg::tiny_skia::Pixmap::new(width, height)
+                .ok_or_else(|| "Failed to allocate tiny-skia pixmap".to_string())?;
 
+            let render_ts = resvg::tiny_skia::Transform::identity();
+            resvg::render(&tree, render_ts, &mut p.as_mut());
+
+            let mut guard = self.cached_overlay_render.lock().unwrap();
+            *guard = Some((overlay_hash, width, height, p.clone()));
+            p
+        };
+
+        // 2. High-performance Rayon multi-threaded alpha-blend
         let rgba = pixmap.data();
         let (chunks, _) = rgba.as_chunks::<4>();
         let len = chunks.len().min(dest_buffer.len());
-        for (dst, chunk) in dest_buffer[..len].iter_mut().zip(&chunks[..len]) {
-            let src_a = chunk[3] as u32;
-            if src_a == 255 {
-                *dst = 0xff00_0000
-                    | ((chunk[0] as u32) << 16)
-                    | ((chunk[1] as u32) << 8)
-                    | (chunk[2] as u32);
-            } else if src_a > 0 {
-                let inv_a = 255 - src_a;
-                let dst_val = *dst;
-                let dst_r = (dst_val >> 16) & 0xff;
-                let dst_g = (dst_val >> 8) & 0xff;
-                let dst_b = dst_val & 0xff;
-                let out_r = ((chunk[0] as u32 * src_a + dst_r * inv_a) / 255) & 0xff;
-                let out_g = ((chunk[1] as u32 * src_a + dst_g * inv_a) / 255) & 0xff;
-                let out_b = ((chunk[2] as u32 * src_a + dst_b * inv_a) / 255) & 0xff;
-                *dst = 0xff00_0000 | (out_r << 16) | (out_g << 8) | out_b;
-            }
-        }
+
+        dest_buffer[..len]
+            .par_chunks_mut(16384)
+            .zip(chunks[..len].par_chunks(16384))
+            .for_each(|(dst_slice, src_slice)| {
+                for (dst, chunk) in dst_slice.iter_mut().zip(src_slice.iter()) {
+                    let src_a = chunk[3] as u32;
+                    if src_a == 255 {
+                        *dst = 0xff00_0000
+                            | ((chunk[0] as u32) << 16)
+                            | ((chunk[1] as u32) << 8)
+                            | (chunk[2] as u32);
+                    } else if src_a > 0 {
+                        let inv_a = 255 - src_a;
+                        let dst_val = *dst;
+                        let dst_r = (dst_val >> 16) & 0xff;
+                        let dst_g = (dst_val >> 8) & 0xff;
+                        let dst_b = dst_val & 0xff;
+                        let out_r = ((chunk[0] as u32 * src_a + dst_r * inv_a) / 255) & 0xff;
+                        let out_g = ((chunk[1] as u32 * src_a + dst_g * inv_a) / 255) & 0xff;
+                        let out_b = ((chunk[2] as u32 * src_a + dst_b * inv_a) / 255) & 0xff;
+                        *dst = 0xff00_0000 | (out_r << 16) | (out_g << 8) | out_b;
+                    }
+                }
+            });
 
         Ok(())
     }

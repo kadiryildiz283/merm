@@ -40,6 +40,10 @@ pub enum Command {
     },
     /// Adds a new class, struct, or enum to diagram and project (:add <kind> <name>)
     Add { kind: NodeKind, name: String },
+    /// Removes a node from diagram (:rm <name>, :del <name>)
+    Remove { name: String },
+    /// Opens inline node editor drawer (:edit [node_id])
+    Edit { node_id: Option<String> },
     /// Connects two diagram nodes with a relation (:connect <from> <to> [label])
     Connect {
         from: String,
@@ -71,6 +75,8 @@ pub enum Command {
     Clear,
     /// Toggles the AI chat / diagnostic split buffer (:split, :sp, :chat)
     ToggleSplit,
+    /// Copies active split/report buffer to system clipboard (:copy, :yank, :y)
+    Copy,
     /// Custom or unrecognized command
     Custom(String),
 }
@@ -148,6 +154,18 @@ impl Command {
                 };
                 Command::Add { kind, name }
             }
+            "rm" | "del" | "delete" | "remove" => {
+                let name = remainder
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .to_string();
+                Command::Remove { name }
+            }
+            "edit" | "modify" => {
+                let node_id = remainder.split_whitespace().next().map(|s| s.to_string());
+                Command::Edit { node_id }
+            }
             "connect" | "link" => {
                 let tokens: Vec<&str> = remainder.split_whitespace().collect();
                 if tokens.len() >= 2 {
@@ -191,6 +209,7 @@ impl Command {
             "reset" => Command::Reset,
             "clear" | "cls" => Command::Clear,
             "split" | "sp" | "chat" => Command::ToggleSplit,
+            "copy" | "yank" | "y" | "cp" => Command::Copy,
             _ => Command::Custom(input.to_string()),
         }
     }

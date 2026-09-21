@@ -1,12 +1,13 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ThemeId {
     CatppuccinMocha,
     TokyoNight,
     Nord,
     GruvboxDark,
     Dracula,
+    #[default]
     Monokai,
     MonokaiTerminal,
     CatppuccinLatte,
@@ -260,6 +261,6 @@ pub struct ColorPalette {
 
 impl Default for ColorPalette {
     fn default() -> Self {
-        ThemeId::CatppuccinMocha.palette()
+        ThemeId::Monokai.palette()
     }
 }

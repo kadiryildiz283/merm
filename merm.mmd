@@ -1,0 +1,59 @@
+classDiagram
+    direction TD
+
+    %% Domain Services & Microservices
+    class OrderService {
+        <<service>>
+        -OrderId orderId // Unique order identifier
+        -CustomerId customerId // Bound account reference
+        -OrderStatus status // CREATED, PROCESSING, COMPLETED, FAILED
+        +createOrder(OrderRequest request) OrderResponse // Validates and persists initial order
+        +cancelOrder(OrderId id, String reason) bool // Compensating transaction handler
+        #validateInventory(ItemList items) bool
+    }
+
+    class PaymentEngine {
+        <<service>>
+        -ApiKey apiKey // Encrypted secret credential
+        -f64 transactionLimit // Daily fraud prevention threshold
+        +processPayment(PaymentRequest req) PaymentResult // Idempotent credit/debit transaction
+        +refund(TransactionId txId, f64 amount) bool // Processes partial/full refund
+        #verifySignature(String payload, String sig) bool
+    }
+
+    class InventoryManager {
+        <<aggregate>>
+        -Map~Sku, u32~ stockLevels // Real-time warehouse inventory cache
+        +reserveStock(ItemList items) ReservationTicket // Holds items during checkout
+        +releaseStock(ReservationTicket ticket) void // Releases held inventory on failure
+        +restock(Sku sku, u32 quantity) void
+    }
+
+    class NotificationHub {
+        <<service>>
+        -String smtpEndpoint // Cloud messaging provider
+        +sendEmail(String recipient, String template) bool // Transactional receipt emails
+        +sendWebhook(String url, String eventJson) void // Outbound partner webhook events
+    }
+
+    %% Domain Entities & Value Objects
+    class CustomerAccount {
+        <<entity>>
+        +CustomerId id // UUID v4 primary key
+        +String email // Verified billing contact
+        -f64 balance // Stored credit balance
+        +chargeAccount(f64 amount) bool
+    }
+
+    class PaymentGateway {
+        <<interface>>
+        +executeTransaction(f64 amount, String currency) bool
+        +healthCheck() bool
+    }
+
+    %% Relationships & Interactions
+    OrderService --> PaymentEngine : authorizes payment
+    OrderService --> InventoryManager : reserves inventory
+    OrderService ..> NotificationHub : dispatches events
+    PaymentEngine ..|> PaymentGateway : realizes
+    PaymentEngine --> CustomerAccount : charges balance

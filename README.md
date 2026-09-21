@@ -47,15 +47,17 @@ Most existing Mermaid diagram tools rely on heavy web stacks: WebKitGTK wrappers
 - 🔑 **OpenAI & Custom LLM Endpoint Support (`:config`):** Native API key authentication for OpenAI (`gpt-4o`, `gpt-4o-mini`), custom OpenAI-compatible endpoints (vLLM, Ollama, OpenRouter), and interactive runtime configuration.
 - 🎮 **120 FPS Fluid Interactivity:** Smooth GPU-accelerated canvas panning, zooming, and **interactive node drag-and-drop** with dynamic relation arrow recalculation.
 - 🔗 **Project-to-Diagram Binding (`&set`):** Binds your Mermaid diagram directly to a Rust project root (`<root>/.merm/manifest.json`). Every Rust file/module maps to an architecture class node!
-- ⚡ **Executable Diagram Nodes (`t` / `:test`):** Every class node in the diagram is executable! Enter input into the node harness drawer, press `Enter`, and observe real-time output, exit codes, execution duration, and stdout/stderr!
+- ⚡ **Executable Diagram Nodes (`t` / `:test`):** Every node in the diagram is executable with **guaranteed default input (`"{}"`) and default output (`"1"` even if void `()`)**! Enter input into the node harness drawer or press `Enter`, and observe real-time output, exit codes, execution duration, and stdout/stderr.
+- ✏️ **Interactive In-App Node & Diagram Editor (`E` / Click):** Click any node or text in the diagram (or press `E` or `:edit <Node>`) to open the floating modal editor. Add fields, methods, or stereotypes, and save instantly with live SVG recalculation.
+- 📋 **Persistent Split Buffer with Native Clipboard (`[📋 Kopyala]` / `y` / `Ctrl+C`):** View AI advice and diagnostic reports in a bottom split buffer. Copy report text directly to your system clipboard (Wayland `wl-copy` and X11 supported).
+- 🧭 **Intuitive Selection & Arrow Navigation:** If no node is currently selected, pressing any Arrow key automatically focuses the first node in the diagram with a glowing cyan selection ring (`🎯 SELECTED`).
 - 🧪 **Deterministic & LLM Architecture Verification (`&check`):** Verifies full compatibility between your Rust codebase and diagram symbols via `syn` AST analysis and LLM validation.
 - 💡 **AI Architecture Advisor & Safe Mutations (`&advice` & `&ok`):** Request architectural recommendations (`&advice`). When you approve with `&ok`, `merm` creates atomic rollback snapshots in `.merm/snapshots/`, applies code/diagram changes, and verifies them with `cargo check`—rolling back automatically on error!
 - 🤖 **Autonomous Multi-File Refactoring (`&ai`):** Run full feature additions or refactorings with synchronized diagram and code updates.
 - 📐 **Deep UML Class & Struct Diagram Support:** Full 3-compartment UML cards with syntax-highlighted visibility tokens (`+`, `-`, `#`, `~`), types, variables, methods, comments, and stereotypes (`<<struct>>`, `<<enum>>`, `<<module>>`).
-- ⌨️ **Vim Modal Navigation & Authentic Statusline:** Muscle-memory navigation with `hjkl`, `Tab` / `p` direction pivoting, `0` / `:fit` readable diagram auto-fit, full-width `:` and `&` command line, and an authentic Airline/Lualine statusline (`[ NORMAL ]`, project path, active symbol, background task spinner, and metrics ruler).
-- 📜 **Scrollable Vim Split Buffer (AI Chat & Diagnostics):** Displays diagnostic reports and AI advice in a full horizontal Vim split buffer (bottom 50%) featuring line numbers (` 1 │`), syntax highlighting, `j`/`k`/`d`/`u`/`g`/`G` Vim scrolling, and one-key proposal application (`o` -> `&ok`).
+- ⌨️ **Vim Modal Navigation & Smart Prompt Auto-Completion (`Tab`):** Muscle-memory navigation with `hjkl`, `Tab` / `p` direction pivoting, `0` / `:fit` readable diagram auto-fit, full-width `:` and `&` command line, and authentic Airline/Lualine statusline. Pressing `Tab` on `&advice`, `&ai`, `&agy`, or `:test` auto-fills context-aware prompts!
 - 🪟 **Terminal-First Transparent Mode:** Canvas transparency with Wayland alpha compositing (`with_transparent(true)`). No unwanted background is forced—your terminal's background, opacity (e.g. Ghostty `0.90`), blur, or desktop shows directly behind the diagram!
-- 🎨 **8 Designer Themes:** Catppuccin Mocha, Tokyo Night, Nord, Gruvbox Dark, Dracula, Monokai, Monokai Terminal, and Catppuccin Latte.
+- 🎨 **8 Designer Themes (Default: Monokai):** Monokai, Monokai Terminal (Transparent), Catppuccin Mocha, Tokyo Night, Nord, Gruvbox Dark, Dracula, and Catppuccin Latte.
 - 🔌 **Bidirectional Editor IPC:** Real-time sync with Neovim (`merm.nvim`) via secure Unix Domain Sockets authenticated by the Linux kernel (`SO_PEERCRED`).
 
 ---
@@ -66,15 +68,18 @@ Open the command line anytime by pressing `:` or `&` in Normal mode:
 
 | Command | Type | Description |
 | :--- | :---: | :--- |
-| `&agy <PROMPT>` | AI | Invokes Google Antigravity CLI (`agy`) directly on the project and diagram. |
+| `&agy [PROMPT]` | AI | Invokes Google Antigravity CLI (`agy`) directly. Has intelligent default prompt or expands with `Tab`. |
 | `&check` | AI / AST | Tests compatibility between the project and diagram using `syn` AST inspection, `cargo check`, and LLM critique. Opens the scrollable Vim split report. |
-| `&ai <PROMPT>` | AI | Autonomous multi-file code generation and diagram update with automatic build verification and rollback protection. |
-| `&advice <QUERY>` | AI | Asks the LLM for architectural advice or refactoring strategy (opens proposal in the scrollable split buffer). |
+| `&ai [PROMPT]` | AI | Autonomous multi-file code generation and diagram update with automatic build verification and rollback protection. |
+| `&advice [QUERY]` | AI | Asks the LLM for architectural advice or refactoring strategy (defaults to active node analysis). |
 | `&ok` | AI / Mutation | Applies the pending recommendation from `&advice`. Creates an atomic rollback backup in `.merm/snapshots/`, applies mutations, and verifies build. |
 | `&set [PATH]` | Project | Binds the current Mermaid diagram to a target Rust project root (creates/loads `.merm/manifest.json` and maps symbols). |
-| `:test [Node] [Input]` | Execution | Opens the interactive Node Test drawer for the target or currently selected node. |
+| `:test [Node] [Input]` | Execution | Executes node test harness with default input `"{}"` and default output `"1"`. (Shortcut: `t`). |
+| `:edit [Node]` | Editor | Opens interactive floating Node Editor to modify fields, methods, or stereotypes. (Shortcut: `E` or click node). |
+| `:copy` / `:yank` | Clipboard | Copies active split buffer content to system clipboard. (Shortcut: `y`, `Ctrl+C`, or `[📋 Kopyala]` button). |
+| `:split` | Buffer | Toggles persistent bottom split buffer open or closed (maximizing diagram). |
 | `:config [KEY] [VAL]` | Settings | Views or updates LLM provider, API keys, models, and endpoints (e.g., `:config provider agy`, `:config api_key sk-...`). |
-| `:theme <NAME>` | View | Switches active color theme (`mocha`, `dracula`, `nord`, `tokyo`, `gruvbox`, `latte`, `monokai`, `terminal`). |
+| `:theme <NAME>` | View | Switches active color theme (`monokai`, `terminal`, `mocha`, `dracula`, `nord`, `tokyo`, `gruvbox`, `latte`). |
 | `:dir <DIR>` | View | Changes diagram layout direction (`TD`, `LR`, `BT`, `RL`). |
 | `:fit` / `:reset` | View | Re-fits diagram with comfortable readable scale (`>= 0.75x`) or resets canvas offset. |
 | `:clear` | Buffer | Closes the AI chat / diagnostic report split buffer. |
@@ -139,15 +144,15 @@ When a Rust project is bound to `merm`:
 2. Select any node in the diagram and press **`t`** (or type `:test`).
 3. An interactive vector test drawer slides up from the bottom of the window:
    - **Target:** `<NodeName> (src/module.rs)`
-   - **Input:** Type or paste JSON, string, or test parameters.
-   - **Run:** Press `Enter` to run the node through `merm`'s test harness.
-   - **Output:** Live display of execution status (`✔ PASS` / `✖ FAIL`), duration (e.g. `12ms`), output payload, and full stdout/stderr!
+   - **Default Input:** Pre-populated with default input `"{}"` (or custom parameters).
+   - **Run:** Press `Enter` to execute the node through `merm`'s test harness.
+   - **Default Output:** Returns live execution status (`✔ PASS`), duration (e.g. `4ms`), and payload. If the function is void `()` or empty, it **guarantees returning `"1"`**!
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────┐
 │ 🚀 Test Node Harness: <AuthService>                                    │
-│ Input: {"username": "admin", "role": "superuser"}                      │
-│ Status: SUCCESS (0) | Duration: 4ms | Payload: "Token issued: jwt.xyz" │
+│ Default Input: {}                                                      │
+│ Status: SUCCESS (0) | Duration: 3ms | Output Payload: 1                │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -158,24 +163,27 @@ When a Rust project is bound to `merm`:
 | Key | Mode | Action |
 | :--- | :--- | :--- |
 | `:` or `&` | Normal | Open interactive command bar (`&agy`, `&check`, `&advice`, `&ok`, `&ai`, `:config`, etc.) |
-| `t` | Normal (Node selected) | Open Node Test drawer for selected class |
+| `Tab` | Command Mode | Auto-complete or expand smart default prompts for `&advice`, `&ai`, `&agy`, `:test` |
+| `t` | Normal (Node selected) | Open Node Test drawer for selected class (default input: `{}`) |
+| `E` | Normal (Node selected) | Open interactive floating Node Editor to modify fields, methods, or stereotypes |
 | `i` or `K` | Normal (Node selected) | Open Node Inspector modal (type, file binding, fields, methods, relations, test status) |
-| `T` | Normal | Cycle color themes (Mocha → Tokyo Night → Nord → Gruvbox → Dracula → Monokai → Terminal → Latte) |
-| `a` or `o` | Normal | Quick add new class or struct node |
-| `c` | Normal | Quick connect nodes |
+| `T` | Normal | Cycle color themes (Monokai → Terminal → Mocha → Tokyo Night → Nord → Gruvbox → Dracula → Latte) |
+| `a` | Normal | Quick add new class or struct node (`:add class `) |
+| `c` | Normal | Quick connect nodes (`:connect `) |
 | `e` | Normal (Node selected) | Open bound Rust source file in `$EDITOR` (Neovim, Helix, VSCode) |
-| `h`, `j`, `k`, `l` | Normal | Pan canvas left, down, up, right |
+| `h`, `j`, `k`, `l` (or `←↓↑→`) | Normal | Pan canvas; if no node is selected, Arrow keys automatically select the first node |
 | `+` / `-` | Normal | Zoom in / Zoom out |
 | `0` | Normal | Fit diagram to viewport (guarantees >= 0.75x readable scale) |
-| `Tab` or `p` | Normal | Pivot layout direction (`TD` ↔ `LR` ↔ `RL` ↔ `BT`) |
-| `n` / `N` | Normal | Select and focus next / previous node |
+| `p` | Normal | Pivot layout direction (`TD` ↔ `LR` ↔ `RL` ↔ `BT`) |
+| `n` / `N` | Normal | Select and focus next / previous node (shows glowing cyan selection ring) |
+| `y` / `Y` or `Ctrl+C` | Normal / Split | Copy active split buffer text to system clipboard (Wayland / X11) |
+| `s` | Normal / Split | Toggle persistent split buffer (bottom 48% or maximized diagram) |
 | `/` or `f` | Normal | Enter Search / Jump mode |
 | `j` / `k` (or `↓` / `↑`) | Split Buffer | Scroll AI chat & diagnostic report down / up by 1 line |
 | `d` / `u` (or `PgDn` / `PgUp`) | Split Buffer | Scroll report down / up by 10 lines |
 | `g` / `G` | Split Buffer | Jump to top / bottom of report buffer |
 | `o` | Split Buffer | Quick-apply proposed recommendation (`&ok`) |
-| **Left Click + Drag** | Canvas | Pan canvas |
-| **Left Click on Node** | Node | **Drag & drop node** (connected relationship arrows dynamically bend!) |
+| **Left Click on Node** | Canvas | **Click opens Node Editor**; Click + Drag repositions node on canvas |
 | **Mouse Wheel** | Canvas / Split | Zoom canvas in/out, or scroll active split buffer |
 | `q` or `Esc` | Any | Close modal/split drawer, or quit application |
 
