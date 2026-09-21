@@ -43,6 +43,7 @@ Most existing Mermaid diagram tools rely on heavy web stacks: WebKitGTK wrappers
 
 - 🚀 **Instant Launch:** Renders and opens in **<50ms** (`merm arch.md`, `merm .`, or `cat doc.md | merm -`).
 - 💎 **Zero WebKit / Electron:** 100% native safe Rust binary using `winit`, `resvg`, `softbuffer`, and hardware-accelerated `wgpu`.
+- 📁 **Standalone Diagram Mode & Clean Starter Templates:** Opening an empty file (`touch arch.md && merm arch.md`) loads an instant, clean starter template. Built-in filesystem boundary guards prevent accidental root scans of `$HOME` or non-project parent directories.
 - 🤖 **Google Antigravity CLI (`agy`) Native Binding (`&agy`):** Deep integration with Google Antigravity CLI. Runs non-interactive architectural queries, intent reconstruction, and code reasoning directly from the in-app command bar.
 - 🔑 **OpenAI & Custom LLM Endpoint Support (`:config`):** Native API key authentication for OpenAI (`gpt-4o`, `gpt-4o-mini`), custom OpenAI-compatible endpoints (vLLM, Ollama, OpenRouter), and interactive runtime configuration.
 - 🎮 **120 FPS Fluid Interactivity:** Smooth GPU-accelerated canvas panning, zooming, and **interactive node drag-and-drop** with dynamic relation arrow recalculation.
@@ -173,6 +174,27 @@ During background AI execution (`&check`, `&advice`, `&ok`, `&ai`):
 
 ---
 
+## 📂 Standalone Diagram Mode & Safe Project Isolation
+
+`merm` is engineered for both standalone Mermaid drafting and deep Rust project co-design:
+
+### 1. Instant Clean Starter Template
+When opening or creating a new empty diagram file:
+```bash
+mkdir my-design
+touch architecture.md
+merm architecture.md
+```
+`merm` detects that the file is empty and immediately initializes an uncluttered, single-class starter template (`class App { +run() }`), letting you begin modeling immediately.
+
+### 2. Strict Boundary & `$HOME` Safety Guard
+Unlike naive tools that blindly traverse parent directories looking for any `.rs` files or project manifests, `merm` enforces strict root safety:
+- **`$HOME` Protection:** `merm` never treats your user home directory (`/home/user`, `~`), root (`/`), or generic folders (`Desktop`, `Downloads`, etc.) as a Rust project root.
+- **Zero Canvas Pollution:** Drafting a diagram inside a folder in your home directory will never accidentally scan hundreds of unrelated Rust files or dump 400+ classes into your canvas.
+- **Explicit Binding:** Deep AST scanning and `.merm/manifest.json` generation only activate when you run `merm .` inside a Cargo project root, target a project with `merm /path/to/project`, or run `&set /path/to/project` directly inside the canvas.
+
+---
+
 ## 🚀 Executable Class Nodes (Input ➔ Run ➔ Output)
 
 When a Rust project is bound to `merm`:
@@ -266,6 +288,12 @@ install -Dm755 target/release/merm ~/.local/bin/merm
 ```bash
 # Open with default showcase diagram
 merm
+
+# Create or open a clean, isolated standalone diagram
+touch my_arch.md && merm my_arch.md
+
+# Open existing Mermaid architecture or markdown notes
+merm architecture.md
 
 # Bind directly to a Rust project directory
 merm /path/to/rust/project
