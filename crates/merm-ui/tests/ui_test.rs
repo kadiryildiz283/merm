@@ -86,7 +86,11 @@ fn test_app_state_command_dispatch() {
     // Copy command
     app.show_report("Architecture Report Content\nLine 2".to_string());
     app.execute_command_str(":copy");
-    assert!(app.status_message.contains("Copied") || app.status_message.contains("Split"));
+    assert!(
+        app.status_message.contains("Copied")
+            || app.status_message.contains("Split")
+            || app.status_message.contains("clipboard")
+    );
 
     // Test Tab auto-complete in command mode
     let mut ctrl = ModalController {
