@@ -98,26 +98,30 @@ impl Advisor {
         let scan_report = RustScanner::scan_project(&manifest.project_root)?;
         let compat = RustScanner::verify_diagram_compatibility(diagram_source, &scan_report);
 
-        // Run cargo check
-        let cargo_check = StdCommand::new("cargo")
-            .current_dir(&manifest.project_root)
-            .arg("check")
-            .output();
+        // Run cargo check if Cargo project, otherwise verify file integrity
+        let (compilation_success, compile_msg) = if manifest.project_root.join("Cargo.toml").is_file() {
+            let cargo_check = StdCommand::new("cargo")
+                .current_dir(&manifest.project_root)
+                .arg("check")
+                .output();
 
-        let (compilation_success, compile_msg) = match cargo_check {
-            Ok(out) => {
-                let success = out.status.success();
-                let msg = if success {
-                    "cargo check passed with 0 errors".to_string()
-                } else {
-                    format!(
-                        "cargo check failed: {}",
-                        String::from_utf8_lossy(&out.stderr)
-                    )
-                };
-                (success, msg)
+            match cargo_check {
+                Ok(out) => {
+                    let success = out.status.success();
+                    let msg = if success {
+                        "cargo check passed with 0 errors".to_string()
+                    } else {
+                        format!(
+                            "cargo check failed: {}",
+                            String::from_utf8_lossy(&out.stderr)
+                        )
+                    };
+                    (success, msg)
+                }
+                Err(e) => (false, format!("Failed to run cargo check: {}", e)),
             }
-            Err(e) => (false, format!("Failed to run cargo check: {}", e)),
+        } else {
+            (true, format!("Project root verified ({} files scanned)", scan_report.files.len()))
         };
 
         let mut diagnostics = compat.diagnostics.clone();
@@ -234,11 +238,19 @@ or embed a JSON block conforming to {"files": [{"path": "src/...", "content": ".
 
         while i < lines.len() {
             let line = lines[i].trim();
-            if line.starts_with("```rust") || line.starts_with("```rs") {
-                let fence_meta = line
-                    .trim_start_matches("```rust")
-                    .trim_start_matches("```rs")
-                    .trim();
+            if line.starts_with("```mermaid") {
+                i += 1;
+                while i < lines.len() && !lines[i].trim().starts_with("```") {
+                    i += 1;
+                }
+                if i < lines.len() {
+                    i += 1; // skip closing fence
+                }
+                continue;
+            }
+
+            if line.starts_with("```") {
+                let fence_meta = line.trim_start_matches('`').trim();
                 let mut candidate_path: Option<String> = None;
 
                 if fence_meta.starts_with(':') {
@@ -278,7 +290,7 @@ or embed a JSON block conforming to {"files": [{"path": "src/...", "content": ".
                         .trim_matches('"')
                         .trim_matches('\'')
                         .to_string();
-                    if clean_path.ends_with(".rs") || clean_path.contains("src/") {
+                    if clean_path.contains('.') || clean_path.contains('/') {
                         files.push((clean_path, block_lines.join("\n")));
                     }
                 }

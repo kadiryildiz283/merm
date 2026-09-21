@@ -79,7 +79,19 @@ impl ModalController {
                     self.command_buffer.push(key);
                     UiAction::SetMode(UiMode::Command)
                 }
-                'a' | 'o' => {
+                'i' => {
+                    if has_selected_node {
+                        self.mode = UiMode::Inspector;
+                        UiAction::SetMode(UiMode::Inspector)
+                    } else {
+                        self.mode = UiMode::Command;
+                        self.command_buffer.clear();
+                        UiAction::SetMode(UiMode::Command)
+                    }
+                }
+                'o' => UiAction::ExecuteCommand("&ok".to_string()),
+                's' | '\x17' => UiAction::ExecuteCommand(":split".to_string()),
+                'a' => {
                     self.mode = UiMode::Command;
                     self.command_buffer = ":add class ".to_string();
                     UiAction::SetMode(UiMode::Command)
@@ -101,7 +113,7 @@ impl ModalController {
                     self.search_query.clear();
                     UiAction::SetMode(UiMode::Search)
                 }
-                'i' | 'K' => {
+                'K' => {
                     if has_selected_node {
                         self.mode = UiMode::Inspector;
                         UiAction::SetMode(UiMode::Inspector)
@@ -280,8 +292,11 @@ mod tests {
     #[test]
     fn test_modal_inspector_flow() {
         let mut controller = ModalController::default();
-        assert_eq!(controller.handle_key('i', false), UiAction::None);
-        assert_eq!(controller.mode, UiMode::Normal);
+        assert_eq!(
+            controller.handle_key('i', false),
+            UiAction::SetMode(UiMode::Command)
+        );
+        controller.mode = UiMode::Normal;
 
         assert_eq!(
             controller.handle_key('i', true),

@@ -69,6 +69,8 @@ pub enum Command {
     Reset,
     /// Clears report buffer and returns to normal view (:clear)
     Clear,
+    /// Toggles the AI chat / diagnostic split buffer (:split, :sp, :chat)
+    ToggleSplit,
     /// Custom or unrecognized command
     Custom(String),
 }
@@ -188,6 +190,7 @@ impl Command {
             "fit" | "fitview" => Command::Fit,
             "reset" => Command::Reset,
             "clear" | "cls" => Command::Clear,
+            "split" | "sp" | "chat" => Command::ToggleSplit,
             _ => Command::Custom(input.to_string()),
         }
     }

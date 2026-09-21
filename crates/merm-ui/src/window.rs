@@ -138,7 +138,11 @@ impl MermAppWindow {
 
         if !self.initial_fit_done {
             if let Some(ref diagram) = self.app_state.current_diagram {
-                let avail_h = (height.saturating_sub(hud_height)).max(1) as f32;
+                let avail_h = if self.app_state.show_split_buffer {
+                    (height as f32 * 0.50).max(100.0)
+                } else {
+                    (height.saturating_sub(hud_height)).max(1) as f32
+                };
                 self.app_state.transform.fit_to_viewport(
                     diagram.width,
                     diagram.height,
@@ -236,158 +240,8 @@ impl MermAppWindow {
             w - 12.0, palette.text_sub, escape_xml(&right_header)
         ));
 
-        // 2. Modals / Split Buffers
+        // 2. Full-screen / Drawer Modals: NodeTest & Inspector
         match app_state.modal.mode {
-            UiMode::Report => {
-                // Authentic Vim Horizontal Split Buffer (Bottom 50%)
-                let split_h = (h * 0.50).clamp(280.0, h - 35.0);
-                let split_y = h - split_h;
-
-                // Dim backdrop slightly over canvas
-                svg.push_str(&format!(
-                    r##"<rect x="0" y="24" width="{}" height="{}" fill="#000000" opacity="0.4"/>"##,
-                    w,
-                    split_y - 24.0
-                ));
-
-                // Split Buffer Window Background
-                svg.push_str(&format!(
-                    r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}" opacity="0.98"/>"##,
-                    split_y, w, split_h, palette.card_bg
-                ));
-
-                // Split Buffer Header Line (Top Border)
-                let split_header_h = 24.0;
-                svg.push_str(&format!(
-                    r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}"/>"##,
-                    split_y, w, split_header_h, palette.badge_bg
-                ));
-                svg.push_str(&format!(
-                    r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="2"/>"##,
-                    split_y, w, split_y, palette.method_color
-                ));
-
-                let title = "🤖 AI Architecture & Diagnostic Buffer";
-                svg.push_str(&format!(
-                    r##"<text x="14" y="{}" fill="{}" font-family="monospace" font-size="12" font-weight="bold">── [ {} ] ──</text>"##,
-                    split_y + 16.0, palette.method_color, escape_xml(title)
-                ));
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">[j/k, d/u, MouseWheel: Scroll │ &amp;ok: Apply │ q/Esc: Close]</text>"##,
-                    w - 14.0, split_y + 16.0, palette.text_sub
-                ));
-
-                // Vertical gutter separator line
-                let gutter_w = 46.0;
-                let gutter_x = gutter_w;
-                let content_top_y = split_y + split_header_h + 8.0;
-                let bottom_bar_h = 26.0;
-                let content_bottom_y = h - bottom_bar_h - 4.0;
-
-                svg.push_str(&format!(
-                    r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
-                    gutter_x,
-                    split_y + split_header_h,
-                    gutter_x,
-                    h - bottom_bar_h,
-                    palette.badge_bg
-                ));
-
-                // Render lines with line numbers and syntax highlighting
-                if let Some(ref content) = app_state.report_content {
-                    let all_lines: Vec<&str> = content.lines().collect();
-                    let total_lines = all_lines.len();
-                    let line_h = 17.0;
-                    let max_visible_lines =
-                        ((content_bottom_y - content_top_y) / line_h).floor() as usize;
-
-                    let max_offset = total_lines.saturating_sub(max_visible_lines);
-                    let offset = app_state.modal.report_scroll_offset.min(max_offset);
-
-                    let mut cur_y = content_top_y + 12.0;
-                    for (idx, line) in all_lines
-                        .iter()
-                        .skip(offset)
-                        .take(max_visible_lines)
-                        .enumerate()
-                    {
-                        let line_no = offset + idx + 1;
-
-                        // Gutter line number
-                        svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">{}</text>"##,
-                            gutter_x - 8.0, cur_y, palette.text_sub, line_no
-                        ));
-
-                        // Syntax coloring
-                        let color = if line.starts_with("#") || line.starts_with("===") {
-                            &palette.stereotype_color
-                        } else if line.starts_with("✔")
-                            || line.starts_with("Status: PASS")
-                            || line.starts_with("SUCCESS")
-                            || line.starts_with("+ ")
-                        {
-                            &palette.method_color
-                        } else if line.starts_with("✖")
-                            || line.starts_with("Status: FAIL")
-                            || line.starts_with("FAILED")
-                            || line.starts_with("- ")
-                        {
-                            &palette.var_color
-                        } else if line.starts_with("```") {
-                            &palette.method_color
-                        } else if line.starts_with("---") {
-                            &palette.badge_bg
-                        } else if line.starts_with("* ") {
-                            &palette.stereotype_color
-                        } else {
-                            &palette.text_main
-                        };
-
-                        svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12">{}</text>"##,
-                            gutter_x + 12.0, cur_y, color, escape_xml(line)
-                        ));
-
-                        cur_y += line_h;
-                    }
-
-                    // Scroll Indicator in header
-                    let scroll_status = if total_lines <= max_visible_lines {
-                        "All".to_string()
-                    } else if offset == 0 {
-                        "Top".to_string()
-                    } else if offset >= max_offset {
-                        "Bot".to_string()
-                    } else {
-                        format!("{:.0}%", (offset as f32 / total_lines as f32) * 100.0)
-                    };
-                    svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">[{}]</text>"##,
-                        w - 380.0, split_y + 16.0, palette.stereotype_color, scroll_status
-                    ));
-                }
-
-                // Split Buffer Bottom Interactive Command / Prompt Bar
-                let prompt_y = h - bottom_bar_h;
-                svg.push_str(&format!(
-                    r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}"/>"##,
-                    prompt_y, w, bottom_bar_h, palette.background
-                ));
-                svg.push_str(&format!(
-                    r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
-                    prompt_y, w, prompt_y, palette.badge_bg
-                ));
-
-                svg.push_str(&format!(
-                    r##"<text x="14" y="{}" fill="{}" font-family="monospace" font-size="12" font-weight="bold">[AI Chat Buffer]</text>"##,
-                    prompt_y + 17.0, palette.method_color
-                ));
-                svg.push_str(&format!(
-                    r##"<text x="145" y="{}" fill="{}" font-family="monospace" font-size="12">Follow-up: '&amp;ok' apply │ '&amp;ai &lt;query&gt;' modify │ ':q' close █</text>"##,
-                    prompt_y + 17.0, palette.text_sub
-                ));
-            }
             UiMode::NodeTest => {
                 let drawer_h = 130.0;
                 let drawer_y = h - drawer_h;
@@ -446,6 +300,9 @@ impl MermAppWindow {
                     r##"<text x="16" y="{}" fill="{}" font-family="monospace" font-size="11">{}</text>"##,
                     drawer_y + 88.0, palette.text_sub, status_preview
                 ));
+
+                svg.push_str("</svg>");
+                return Some(svg);
             }
             UiMode::Inspector => {
                 // Centered Node Inspector modal window
@@ -551,102 +408,229 @@ impl MermAppWindow {
                         }
                     }
                 }
+
+                svg.push_str("</svg>");
+                return Some(svg);
             }
-            _ => {
-                // NORMAL & COMMAND MODE: Authentic Vim Statusline + Command Line
-                // 1. Vim Statusline (Height: 22px at y = h - 48.0)
-                let status_y = h - 48.0;
-                svg.push_str(&format!(
-                    r##"<rect x="0" y="{}" width="{}" height="22" fill="{}"/>"##,
-                    status_y, w, palette.badge_bg
-                ));
+            _ => {}
+        }
 
-                // Mode Badge
-                let (badge_bg, badge_text) = match app_state.modal.mode {
-                    UiMode::Command => ("#fab387", "COMMAND"),
-                    UiMode::NodeTest => ("#cba6f7", "TEST"),
-                    UiMode::Search => ("#f9e2af", "SEARCH"),
-                    _ => ("#89b4fa", "NORMAL"),
-                };
-                let badge_w: f32 = 80.0;
-                svg.push_str(&format!(
-                    r##"<rect x="0" y="{}" width="{}" height="22" fill="{}"/>"##,
-                    status_y, badge_w, badge_bg
-                ));
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="#11111b" font-family="monospace" font-size="11" font-weight="bold" text-anchor="middle">{}</text>"##,
-                    badge_w / 2.0, status_y + 15.0, badge_text
-                ));
+        // 3. Persistent Vim Horizontal Split Buffer (when show_split_buffer is true or mode is Report)
+        let is_split_open = app_state.show_split_buffer || app_state.modal.mode == UiMode::Report;
+        if is_split_open {
+            let split_h = (h * 0.48).clamp(240.0, (h - 76.0).max(120.0));
+            let split_y = h - split_h;
 
-                // Project & Focus File
-                let project_name = app_state
-                    .manifest
-                    .as_ref()
-                    .map(|m| m.project_name.as_str())
-                    .unwrap_or("unbound");
-                let active_sym = app_state.active_node_id.as_deref().unwrap_or("canvas");
-                let file_info = format!(" 📁 {}  {}", project_name, active_sym);
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" font-weight="bold">{}</text>"##,
-                    badge_w + 10.0, status_y + 15.0, palette.text_main, escape_xml(&file_info)
-                ));
+            // Split Buffer Background
+            svg.push_str(&format!(
+                r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}" opacity="0.98"/>"##,
+                split_y, w, split_h - 48.0, palette.card_bg
+            ));
 
-                // Middle: Busy animation or status message
-                let middle_x: f32 = (badge_w + 240.0f32).min(w - 280.0f32);
-                if app_state.is_busy {
-                    let busy_text = format!("⏳ {} [working...]", app_state.busy_message);
+            // Split Header Line (Top Border)
+            let split_header_h = 24.0;
+            svg.push_str(&format!(
+                r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}"/>"##,
+                split_y, w, split_header_h, palette.badge_bg
+            ));
+            svg.push_str(&format!(
+                r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="2"/>"##,
+                split_y, w, split_y, palette.method_color
+            ));
+
+            let title = "🤖 AI Architecture & Diagnostic Buffer (Vim Split)";
+            svg.push_str(&format!(
+                r##"<text x="14" y="{}" fill="{}" font-family="monospace" font-size="12" font-weight="bold">── [ {} ] ──</text>"##,
+                split_y + 16.0, palette.method_color, escape_xml(title)
+            ));
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">[i/&amp;/: Prompt │ j/k, Wheel: Scroll │ &amp;ok: Apply │ s: Toggle Split │ :q: Quit]</text>"##,
+                w - 14.0, split_y + 16.0, palette.text_sub
+            ));
+
+            // Vertical gutter separator line
+            let gutter_w = 46.0;
+            let gutter_x = gutter_w;
+            let content_top_y = split_y + split_header_h + 8.0;
+            let content_bottom_y = h - 48.0 - 4.0;
+
+            svg.push_str(&format!(
+                r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
+                gutter_x,
+                split_y + split_header_h,
+                gutter_x,
+                h - 48.0,
+                palette.badge_bg
+            ));
+
+            // Render lines with line numbers and syntax highlighting
+            if let Some(ref content) = app_state.report_content {
+                let all_lines: Vec<&str> = content.lines().collect();
+                let total_lines = all_lines.len();
+                let line_h = 17.0;
+                let max_visible_lines =
+                    ((content_bottom_y - content_top_y) / line_h).floor() as usize;
+
+                let max_offset = total_lines.saturating_sub(max_visible_lines);
+                let offset = app_state.modal.report_scroll_offset.min(max_offset);
+
+                let mut cur_y = content_top_y + 12.0;
+                for (idx, line) in all_lines
+                    .iter()
+                    .skip(offset)
+                    .take(max_visible_lines)
+                    .enumerate()
+                {
+                    let line_no = offset + idx + 1;
+
+                    // Gutter line number
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" font-weight="bold">{}</text>"##,
-                        middle_x, status_y + 15.0, palette.method_color, escape_xml(&busy_text)
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">{}</text>"##,
+                        gutter_x - 8.0, cur_y, palette.text_sub, line_no
                     ));
-                } else if !app_state.status_message.is_empty() {
+
+                    // Syntax coloring
+                    let color = if line.starts_with("#") || line.starts_with("===") {
+                        &palette.stereotype_color
+                    } else if line.starts_with("✔")
+                        || line.starts_with("Status: PASS")
+                        || line.starts_with("SUCCESS")
+                        || line.starts_with("+ ")
+                    {
+                        &palette.method_color
+                    } else if line.starts_with("✖")
+                        || line.starts_with("Status: FAIL")
+                        || line.starts_with("FAILED")
+                        || line.starts_with("- ")
+                    {
+                        &palette.var_color
+                    } else if line.starts_with("```") {
+                        &palette.method_color
+                    } else if line.starts_with("---") {
+                        &palette.badge_bg
+                    } else if line.starts_with("* ") {
+                        &palette.stereotype_color
+                    } else {
+                        &palette.text_main
+                    };
+
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11">{}</text>"##,
-                        middle_x, status_y + 15.0, palette.text_sub, escape_xml(&app_state.status_message)
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12">{}</text>"##,
+                        gutter_x + 12.0, cur_y, color, escape_xml(line)
                     ));
+
+                    cur_y += line_h;
                 }
 
-                // Right: Metrics ruler
-                let zoom_pct = (app_state.transform.scale * 100.0) as u32;
-                let ruler = format!("utf-8 │ 120 FPS │ {}% │ Ln 1, Col 1", zoom_pct);
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">{}</text>"##,
-                    w - 12.0, status_y + 15.0, palette.text_sub, escape_xml(&ruler)
-                ));
-
-                // 2. Vim Command Line (Height: 26px at y = h - 26.0)
-                let cmd_y = h - 26.0;
-                svg.push_str(&format!(
-                    r##"<rect x="0" y="{}" width="{}" height="26" fill="{}" opacity="0.98"/>"##,
-                    cmd_y, w, palette.card_bg
-                ));
-                svg.push_str(&format!(
-                    r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
-                    cmd_y, w, cmd_y, palette.badge_bg
-                ));
-
-                if app_state.modal.mode == UiMode::Command {
-                    let cmd_str = format!("{}█", escape_xml(&app_state.modal.command_buffer));
-                    svg.push_str(&format!(
-                        r##"<text x="12" y="{}" fill="{}" font-family="monospace" font-size="13" font-weight="bold">{}</text>"##,
-                        cmd_y + 18.0, palette.text_main, cmd_str
-                    ));
-                    svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">[Enter] Run  │  [Esc] Cancel</text>"##,
-                        w - 14.0, cmd_y + 18.0, palette.text_sub
-                    ));
+                // Scroll Indicator in header
+                let scroll_status = if total_lines <= max_visible_lines {
+                    "All".to_string()
+                } else if offset == 0 {
+                    "Top".to_string()
+                } else if offset >= max_offset {
+                    "Bot".to_string()
                 } else {
-                    // Normal mode hint
-                    svg.push_str(&format!(
-                        r##"<text x="12" y="{}" fill="{}" font-family="monospace" font-size="11">: / &amp; Commands (&amp;check, &amp;ai, &amp;advice, &amp;agy, &amp;set, :test, :theme, :q)  │  Press ':' or '&amp;'</text>"##,
-                        cmd_y + 17.0, palette.text_sub
-                    ));
-                    svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">merm (Vim mode)</text>"##,
-                        w - 14.0, cmd_y + 17.0, palette.badge_bg
-                    ));
-                }
+                    format!("{:.0}%", (offset as f32 / total_lines as f32) * 100.0)
+                };
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">[{}]</text>"##,
+                    w - 460.0, split_y + 16.0, palette.stereotype_color, scroll_status
+                ));
             }
+        }
+
+        // 4. Authentic Vim Statusline (Height: 22px at y = h - 48.0)
+        let status_y = h - 48.0;
+        svg.push_str(&format!(
+            r##"<rect x="0" y="{}" width="{}" height="22" fill="{}"/>"##,
+            status_y, w, palette.badge_bg
+        ));
+
+        // Mode Badge
+        let (badge_bg, badge_text) = match app_state.modal.mode {
+            UiMode::Command => ("#fab387", "COMMAND"),
+            UiMode::NodeTest => ("#cba6f7", "TEST"),
+            UiMode::Search => ("#f9e2af", "SEARCH"),
+            UiMode::Report => ("#a6e3a1", "REPORT"),
+            _ => ("#89b4fa", "NORMAL"),
+        };
+        let badge_w: f32 = 80.0;
+        svg.push_str(&format!(
+            r##"<rect x="0" y="{}" width="{}" height="22" fill="{}"/>"##,
+            status_y, badge_w, badge_bg
+        ));
+        svg.push_str(&format!(
+            r##"<text x="{}" y="{}" fill="#11111b" font-family="monospace" font-size="11" font-weight="bold" text-anchor="middle">{}</text>"##,
+            badge_w / 2.0, status_y + 15.0, badge_text
+        ));
+
+        // Project & Focus File
+        let project_name = app_state
+            .manifest
+            .as_ref()
+            .map(|m| m.project_name.as_str())
+            .unwrap_or("unbound");
+        let active_sym = app_state.active_node_id.as_deref().unwrap_or("canvas");
+        let file_info = format!(" 📁 {}  {}", project_name, active_sym);
+        svg.push_str(&format!(
+            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" font-weight="bold">{}</text>"##,
+            badge_w + 10.0, status_y + 15.0, palette.text_main, escape_xml(&file_info)
+        ));
+
+        // Middle: Busy animation or status message
+        let middle_x: f32 = (badge_w + 240.0f32).min(w - 280.0f32);
+        if app_state.is_busy {
+            let busy_text = format!("⏳ {} [working...]", app_state.busy_message);
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" font-weight="bold">{}</text>"##,
+                middle_x, status_y + 15.0, palette.method_color, escape_xml(&busy_text)
+            ));
+        } else if !app_state.status_message.is_empty() {
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11">{}</text>"##,
+                middle_x, status_y + 15.0, palette.text_sub, escape_xml(&app_state.status_message)
+            ));
+        }
+
+        // Right: Metrics ruler
+        let zoom_pct = (app_state.transform.scale * 100.0) as u32;
+        let ruler = format!("utf-8 │ 120 FPS │ {}% │ Ln 1, Col 1", zoom_pct);
+        svg.push_str(&format!(
+            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">{}</text>"##,
+            w - 12.0, status_y + 15.0, palette.text_sub, escape_xml(&ruler)
+        ));
+
+        // 5. Vim Command Line (Height: 26px at y = h - 26.0)
+        let cmd_y = h - 26.0;
+        svg.push_str(&format!(
+            r##"<rect x="0" y="{}" width="{}" height="26" fill="{}" opacity="0.98"/>"##,
+            cmd_y, w, palette.card_bg
+        ));
+        svg.push_str(&format!(
+            r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
+            cmd_y, w, cmd_y, palette.badge_bg
+        ));
+
+        if app_state.modal.mode == UiMode::Command {
+            let cmd_str = format!("{}█", escape_xml(&app_state.modal.command_buffer));
+            svg.push_str(&format!(
+                r##"<text x="12" y="{}" fill="{}" font-family="monospace" font-size="13" font-weight="bold">{}</text>"##,
+                cmd_y + 18.0, palette.text_main, cmd_str
+            ));
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">[Enter] Run  │  [Esc] Cancel</text>"##,
+                w - 14.0, cmd_y + 18.0, palette.text_sub
+            ));
+        } else {
+            // Normal / Report mode prompt hint
+            svg.push_str(&format!(
+                r##"<text x="12" y="{}" fill="{}" font-family="monospace" font-size="12">[AI Chat Buffer] Type 'i', '&amp;', or ':' to prompt AI / run commands (&amp;check, &amp;ai, &amp;advice, &amp;ok, &amp;set) │ 's': toggle split █</text>"##,
+                cmd_y + 17.0, palette.text_sub
+            ));
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">merm (Vim mode)</text>"##,
+                w - 14.0, cmd_y + 17.0, palette.badge_bg
+            ));
         }
 
         svg.push_str("</svg>");
@@ -720,7 +704,7 @@ impl ApplicationHandler for MermAppWindow {
                         self.app_state.modal.handle_key('\n', has_selected)
                     }
                     Key::Named(NamedKey::ArrowDown) => {
-                        if self.app_state.modal.mode == UiMode::Report {
+                        if self.app_state.show_split_buffer || self.app_state.modal.mode == UiMode::Report {
                             self.app_state.modal.report_scroll_offset =
                                 self.app_state.modal.report_scroll_offset.saturating_add(1);
                             UiAction::None
@@ -729,7 +713,7 @@ impl ApplicationHandler for MermAppWindow {
                         }
                     }
                     Key::Named(NamedKey::ArrowUp) => {
-                        if self.app_state.modal.mode == UiMode::Report {
+                        if self.app_state.show_split_buffer || self.app_state.modal.mode == UiMode::Report {
                             self.app_state.modal.report_scroll_offset =
                                 self.app_state.modal.report_scroll_offset.saturating_sub(1);
                             UiAction::None
@@ -738,7 +722,7 @@ impl ApplicationHandler for MermAppWindow {
                         }
                     }
                     Key::Named(NamedKey::PageDown) => {
-                        if self.app_state.modal.mode == UiMode::Report {
+                        if self.app_state.show_split_buffer || self.app_state.modal.mode == UiMode::Report {
                             self.app_state.modal.report_scroll_offset =
                                 self.app_state.modal.report_scroll_offset.saturating_add(10);
                             UiAction::None
@@ -747,7 +731,7 @@ impl ApplicationHandler for MermAppWindow {
                         }
                     }
                     Key::Named(NamedKey::PageUp) => {
-                        if self.app_state.modal.mode == UiMode::Report {
+                        if self.app_state.show_split_buffer || self.app_state.modal.mode == UiMode::Report {
                             self.app_state.modal.report_scroll_offset =
                                 self.app_state.modal.report_scroll_offset.saturating_sub(10);
                             UiAction::None
@@ -759,7 +743,10 @@ impl ApplicationHandler for MermAppWindow {
                         if self.app_state.modal.mode != UiMode::Normal {
                             self.app_state.modal.handle_key('\x1b', has_selected)
                         } else {
-                            UiAction::Quit
+                            if self.app_state.active_node_id.is_some() {
+                                self.app_state.active_node_id = None;
+                            }
+                            UiAction::None
                         }
                     }
                     Key::Named(NamedKey::Tab) => {
@@ -801,10 +788,12 @@ impl ApplicationHandler for MermAppWindow {
                 let (_win_w, win_h) = self.current_surface_size;
                 let (cx, cy) = self.last_cursor_pos.unwrap_or((640.0, 360.0));
 
-                // If in Report mode and mouse is over the split buffer, scroll report buffer
+                // If split buffer is open and mouse is over the split buffer, scroll report buffer
                 let split_top_y =
-                    (win_h as f64 * 0.50).clamp(280.0, (win_h as f64 - 35.0).max(1.0));
-                if self.app_state.modal.mode == UiMode::Report && cy >= (win_h as f64 - split_top_y)
+                    (win_h as f64 * 0.48).clamp(240.0, (win_h as f64 - 76.0).max(120.0));
+                let is_split_open =
+                    self.app_state.show_split_buffer || self.app_state.modal.mode == UiMode::Report;
+                if is_split_open && cy >= (win_h as f64 - split_top_y)
                 {
                     let scroll_delta = match delta {
                         MouseScrollDelta::LineDelta(_, y) => {

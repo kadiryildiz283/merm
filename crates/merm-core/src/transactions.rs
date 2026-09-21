@@ -81,6 +81,10 @@ impl TransactionSnapshot {
     }
 
     pub fn verify_or_rollback(&self) -> Result<(), CoreError> {
+        if !self.project_root.join("Cargo.toml").is_file() {
+            return Ok(());
+        }
+
         let mut cmd = StdCommand::new("cargo");
         cmd.current_dir(&self.project_root).arg("check");
 

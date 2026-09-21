@@ -164,6 +164,30 @@ impl ProjectManifest {
         None
     }
 
+    pub fn detect_project_root(start: &Path) -> PathBuf {
+        let curr = if start.is_file() {
+            start.parent().unwrap_or(Path::new(".")).to_path_buf()
+        } else {
+            start.to_path_buf()
+        };
+
+        let mut check_curr = curr.clone();
+        loop {
+            if check_curr.join("Cargo.toml").is_file()
+                || check_curr.join(".git").is_dir()
+                || check_curr.join("pyproject.toml").is_file()
+                || check_curr.join("package.json").is_file()
+                || check_curr.join("requirements.txt").is_file()
+            {
+                return check_curr;
+            }
+            if !check_curr.pop() {
+                break;
+            }
+        }
+        curr
+    }
+
     pub fn load_or_init(root: &Path) -> Result<Self, CoreError> {
         let merm_dir = root.join(MERM_DIR);
         if !merm_dir.exists() {

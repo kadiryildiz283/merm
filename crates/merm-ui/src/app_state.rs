@@ -32,6 +32,7 @@ pub struct AppState {
     pub last_check_report: Option<CheckReport>,
     pub last_execution_result: Option<ExecutionResult>,
     pub report_content: Option<String>,
+    pub show_split_buffer: bool,
     pub is_busy: bool,
     pub busy_message: String,
     pub worker: Option<AsyncWorker>,
@@ -65,17 +66,46 @@ impl AppState {
             last_check_report: None,
             last_execution_result: None,
             report_content: None,
+            show_split_buffer: true,
             is_busy: false,
             busy_message: String::new(),
             worker: None,
         };
 
-        // Try detecting current directory as a Rust project automatically
+        // Try detecting current directory or parent project automatically
         if let Ok(curr) = env::current_dir() {
-            if let Some(cargo_root) = ProjectManifest::detect_cargo_root(&curr) {
-                let _ = state.bind_project(Some(cargo_root.to_str().unwrap_or(".")));
-            }
+            let root = ProjectManifest::detect_project_root(&curr);
+            let _ = state.bind_project(Some(root.to_str().unwrap_or(".")));
         }
+
+        let p_name = state
+            .manifest
+            .as_ref()
+            .map(|m| m.project_name.as_str())
+            .unwrap_or("workspace");
+        let initial_welcome = format!(
+            "# 🤖 Merm AI Architectural Studio & Co-Pilot (Vim Mode)\n\
+            * Project: Bound to '{}'\n\
+            * Instructions & Commands:\n\
+              - &check       : Verify diagram vs project files (AST & LLM)\n\
+              - &advice <Q>  : Ask architectural guidance from LLM (preview in buffer)\n\
+              - &ok          : Apply pending advice with automatic rollback protection\n\
+              - &ai <prompt> : Autonomous refactoring/scaffolding across project & diagram\n\
+              - &agy <prompt>: Query Google Antigravity directly\n\
+              - &set <path>  : Bind diagram to target project root\n\
+              - :test <node> : Run executable node test harness\n\
+              - :theme <name>: Change color theme (dracula, nord, mocha, tokyo, monokai)\n\
+              - :split       : Toggle this AI split buffer (Shortcut: Ctrl+W)\n\
+              - :w / :q      : Save diagram / Quit application\n\
+            * Navigation:\n\
+              - Type ':' or '&' or press 'i' to enter command & chat mode\n\
+              - Press 'j' / 'k', 'd' / 'u', or mouse wheel to scroll this buffer\n\
+              - Press 'o' to apply advice (&ok) │ Press ':sp' or 'Ctrl+W' to toggle split\n\
+            ---",
+            p_name
+        );
+        state.report_content = Some(initial_welcome);
+        state.show_split_buffer = true;
 
         state.recalculate_diagram();
         state
@@ -111,7 +141,13 @@ impl AppState {
     }
 
     pub fn show_report(&mut self, text: String) {
-        self.report_content = Some(text);
+        if let Some(ref mut content) = self.report_content {
+            content.push_str("\n\n");
+            content.push_str(&text);
+        } else {
+            self.report_content = Some(text);
+        }
+        self.show_split_buffer = true;
         self.modal.mode = UiMode::Report;
         self.modal.report_scroll_offset = 0;
     }
@@ -123,13 +159,11 @@ impl AppState {
             env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
         };
 
-        let cargo_root = ProjectManifest::detect_cargo_root(&path)
-            .ok_or_else(|| format!("No Cargo.toml found in {:?} or any parent directory", path))?;
-
-        let mut manifest = ProjectManifest::load_or_init(&cargo_root).map_err(|e| e.to_string())?;
+        let project_root = ProjectManifest::detect_project_root(&path);
+        let mut manifest = ProjectManifest::load_or_init(&project_root).map_err(|e| e.to_string())?;
 
         // Scan project and auto-bind symbols to manifest
-        if let Ok(scan_report) = RustScanner::scan_project(&cargo_root) {
+        if let Ok(scan_report) = RustScanner::scan_project(&project_root) {
             for sym in &scan_report.symbols {
                 manifest.add_binding(NodeBinding {
                     id: sym.name.clone(),
@@ -155,7 +189,7 @@ impl AppState {
                 || self.diagram_source.trim().is_empty()
                 || self.diagram_source.trim() == "classDiagram";
 
-            if is_sample_or_empty {
+            if is_sample_or_empty && !scan_report.symbols.is_empty() {
                 self.diagram_source = RustScanner::generate_mermaid_class_diagram(&scan_report);
                 self.recalculate_diagram();
             }
@@ -183,6 +217,9 @@ impl AppState {
                 }
             }
             Command::Check => {
+                if self.manifest.is_none() {
+                    let _ = self.bind_project(None);
+                }
                 if let Some(ref manifest) = self.manifest {
                     if let Some(ref w) = self.worker {
                         self.is_busy = true;
@@ -218,6 +255,9 @@ impl AppState {
                 }
             }
             Command::Advice { prompt } => {
+                if self.manifest.is_none() {
+                    let _ = self.bind_project(None);
+                }
                 if let Some(ref manifest) = self.manifest {
                     if let Some(ref w) = self.worker {
                         self.is_busy = true;
@@ -307,6 +347,9 @@ impl AppState {
                 }
             }
             Command::Ai { prompt } => {
+                if self.manifest.is_none() {
+                    let _ = self.bind_project(None);
+                }
                 if let Some(ref mut manifest) = self.manifest {
                     if let Some(ref w) = self.worker {
                         self.is_busy = true;
@@ -347,6 +390,9 @@ impl AppState {
                 }
             }
             Command::Agy { prompt } => {
+                if self.manifest.is_none() {
+                    let _ = self.bind_project(None);
+                }
                 if let Some(ref manifest) = self.manifest {
                     let mut agy_manifest = manifest.clone();
                     agy_manifest.settings.llm_provider = "agy".to_string();
@@ -701,8 +747,21 @@ Keybindings (NORMAL mode):
                 self.modal.report_scroll_offset = 0;
                 self.status_message = "Cleared report view".to_string();
             }
+            Command::ToggleSplit => {
+                self.show_split_buffer = !self.show_split_buffer;
+                self.status_message = if self.show_split_buffer {
+                    "Split buffer opened".to_string()
+                } else {
+                    "Split buffer closed (maximized diagram)".to_string()
+                };
+            }
             Command::Custom(s) => {
-                self.status_message = format!("Unknown command: {}", s);
+                if !s.trim().is_empty() {
+                    let prompt = s.trim().to_string();
+                    self.execute_command_str(&format!("&advice {}", prompt));
+                } else {
+                    self.status_message = "Ready".to_string();
+                }
             }
         }
     }

@@ -74,10 +74,37 @@ impl RustScanner {
         Self::collect_rs_files(root, &mut rs_files)?;
 
         if rs_files.is_empty() {
-            return Err(CoreError::LayoutFailed(format!(
-                "No Rust source files (.rs) found in project {:?}",
-                root
-            )));
+            let mut general_files = Vec::new();
+            Self::collect_general_files(root, &mut general_files)?;
+            general_files.sort();
+
+            for file_path in general_files {
+                let rel_path = file_path
+                    .strip_prefix(root)
+                    .unwrap_or(&file_path)
+                    .to_string_lossy()
+                    .to_string();
+
+                let stem = file_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("module")
+                    .to_string();
+
+                report.files.push(rel_path.clone());
+                report.symbols.push(RustSymbol {
+                    name: stem,
+                    kind: RustSymbolKind::Module,
+                    file_path: rel_path,
+                    doc_comment: None,
+                    fields: Vec::new(),
+                    methods: Vec::new(),
+                    is_executable: true,
+                    primary_entrypoint: Some("run".to_string()),
+                });
+            }
+
+            return Ok(report);
         }
 
         // Sort files for deterministic ordering
@@ -122,6 +149,34 @@ impl RustScanner {
                 } else if path.extension().is_some_and(|ext| ext == "rs") {
                     let f_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
                     if !f_name.starts_with("merm_exec_") {
+                        files.push(path);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn collect_general_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), CoreError> {
+        if let Ok(entries) = fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let dir_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+                    if dir_name.starts_with('.')
+                        || dir_name == "target"
+                        || dir_name == "node_modules"
+                        || dir_name == "venv"
+                        || dir_name == ".venv"
+                        || dir_name == "__pycache__"
+                        || dir_name == "build"
+                        || dir_name == "dist"
+                    {
+                        continue;
+                    }
+                    Self::collect_general_files(&path, files)?;
+                } else if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
+                    if matches!(ext, "py" | "js" | "ts" | "go" | "md" | "json" | "sh" | "rs") {
                         files.push(path);
                     }
                 }
