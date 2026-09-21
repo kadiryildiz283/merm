@@ -1,11 +1,22 @@
 use merm_core::{DiagramExtractor, LayoutEngine};
 use merm_render::{SvgRasterizer, Transform2D};
 use std::fs;
+use std::path::Path;
 
 #[test]
 fn test_rasterize_erp_mermaid() {
-    let path = "/home/kadir/Projeler/erp/mermaid.md";
-    let content = fs::read_to_string(path).expect("File must exist");
+    let local_path = "/home/kadir/Projeler/erp/mermaid.md";
+    let content = if Path::new(local_path).exists() {
+        fs::read_to_string(local_path).expect("File must exist")
+    } else {
+        r#"```mermaid
+flowchart TD
+    A[Start Node] --> B[Process Task]
+    B -->|"(1 Kez) Tekrarlı Bildirim"| C[Notification Hub]
+    C -->|"(Red Alert) Kırmızı Alarm"| D[Alert Dispatcher]
+```"#
+            .to_string()
+    };
     let extracted = DiagramExtractor::extract(&content).expect("Must extract blocks");
     let engine = LayoutEngine::default();
     let diagram = engine
