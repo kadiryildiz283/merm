@@ -6,7 +6,7 @@ use merm_core::{
     UndoRedoStack,
 };
 use merm_ipc::EditorCommand;
-use merm_render::{BackendType, RenderEngine, Transform2D};
+use merm_render::{RenderEngine, Transform2D};
 use std::env;
 use std::path::PathBuf;
 use std::process::Command as StdCommand;
@@ -2169,21 +2169,8 @@ Keybindings (NORMAL mode):
             _ => {}
         }
 
-        let backend_str = match self.render_engine.active_backend() {
-            BackendType::HardwareWgpu => "WGPU 120FPS",
-            BackendType::SoftwareFallback => "CPU (softbuffer) 60FPS",
-        };
-
-        let mode_str = match self.modal.mode {
-            UiMode::Normal => "NORMAL",
-            UiMode::Pan => "PAN",
-            UiMode::Search => "SEARCH",
-            UiMode::Jump => "JUMP",
-            _ => "NORMAL",
-        };
-
         let project_str = if let Some(ref m) = self.manifest {
-            format!(" [Project: {}]", m.project_name)
+            format!(" [{}]", m.project_name)
         } else {
             String::new()
         };
@@ -2198,14 +2185,14 @@ Keybindings (NORMAL mode):
                     {
                         let type_kind = node.stereotype.as_deref().unwrap_or("CLASS");
                         format!(
-                            " [{}: {} ({} vars, {} funcs, exec: 't')]",
+                            " [{}: {} ({} vars, {} funcs)]",
                             type_kind.to_uppercase(),
                             node.id,
                             node.attributes.len(),
                             node.methods.len()
                         )
                     } else {
-                        format!(" [NODE: {} (exec: 't')]", node.label)
+                        format!(" [{}]", node.label)
                     }
                 } else {
                     format!(" [{}]", sel_id)
@@ -2217,16 +2204,17 @@ Keybindings (NORMAL mode):
             String::new()
         };
 
-        format!(
-            "[MODE: {}]{} [{}] [{}] [Zoom: {:.1}x]{} | {}",
-            mode_str,
-            project_str,
-            self.theme.palette().name,
-            backend_str,
-            self.transform.scale,
-            sel_str,
-            self.status_message
-        )
+        if !sel_str.is_empty() {
+            format!(
+                "merm — Studio{} | Selected:{} | {}",
+                project_str, sel_str, self.status_message
+            )
+        } else {
+            format!(
+                "merm — Architecture Studio{} | Zoom: {:.1}x | {}",
+                project_str, self.transform.scale, self.status_message
+            )
+        }
     }
 
     pub fn toggle_sidebar(&mut self) {

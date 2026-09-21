@@ -396,10 +396,14 @@ impl RenderedDiagram {
         // Draw nodes
         for node in &self.nodes {
             let is_selected = self.selected_node_id.as_deref() == Some(&node.id);
+            let role = node.role();
+            let clean_title = node.clean_title();
+            let role_col = palette.node_role_color(&role, &clean_title);
+            let role_bg = palette.node_role_bg(&role, &clean_title);
             let border_color = if is_selected {
-                &palette.text_accent
+                palette.text_accent.as_str()
             } else {
-                &palette.border
+                role_col
             };
             let border_width = if is_selected { "3" } else { "2" };
 
@@ -427,12 +431,12 @@ impl RenderedDiagram {
                 svg.push_str(&format!(
                     r##"<g id="node_{}" class="class-node">
                     <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}" stroke="{}" stroke-width="{}"/>
-                    <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}"/>
+                    <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}" opacity="0.5"/>
                     <line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1.5"/>"##,
                     escape_xml(&node.id),
-                    node.x, node.y, node.width, node.height, palette.card_bg, border_color, border_width,
+                    node.x, node.y, node.width, node.height, role_bg, border_color, border_width,
                     node.x, node.y, node.width, header_h, palette.card_header,
-                    node.x, node.y + header_h, node.x + node.width, node.y + header_h, palette.border
+                    node.x, node.y + header_h, node.x + node.width, node.y + header_h, border_color
                 ));
 
                 // Header Contents: Stereotype, Class Name, Doc Comment
@@ -649,47 +653,44 @@ impl RenderedDiagram {
 
                 svg.push_str("</g>\n");
             } else {
-                // Modern Architecture Service Card (Apple / Linear Dark aesthetic)
+                // Modern Architecture Service Card (Apple / Linear Dark aesthetic matching reference image)
                 let role = node.role();
                 let clean_title = node.clean_title();
                 let role_col = palette.node_role_color(&role, &clean_title);
-                let role_icon = palette.node_role_icon(&role, &clean_title);
+                let role_bg = palette.node_role_bg(&role, &clean_title);
                 let card_stroke = if is_selected {
                     palette.text_accent.as_str()
                 } else {
                     role_col
                 };
+                let border_w = if is_selected { "2.5" } else { "2" };
 
                 svg.push_str(&format!(
                     r##"<g id="node_{}" class="arch-node">
                     <rect x="{}" y="{}" width="{}" height="{}" rx="10" fill="{}" stroke="{}" stroke-width="{}"/>"##,
                     escape_xml(&node.id),
-                    node.x, node.y, node.width, node.height, palette.card_bg, card_stroke, border_width
+                    node.x, node.y, node.width, node.height, role_bg, card_stroke, border_w
                 ));
 
-                // Left Icon Box
-                let icon_box_size = 32.0f32;
-                let icon_x = node.x + 14.0;
-                let icon_y = node.y + (node.height - icon_box_size) / 2.0;
-                svg.push_str(&format!(
-                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}" fill-opacity="0.16" stroke="{}" stroke-width="1"/>
-                    <text x="{}" y="{}" fill="{}" font-size="16" text-anchor="middle" dominant-baseline="central">{}</text>"##,
-                    icon_x, icon_y, icon_box_size, icon_box_size, role_col, role_col,
-                    icon_x + icon_box_size / 2.0, icon_y + icon_box_size / 2.0, role_col, role_icon
-                ));
+                // Left Vector Icon matching the role
+                let icon_cx = node.x + 26.0;
+                let icon_cy = node.y + node.height / 2.0;
+                let icon_svg =
+                    palette.node_role_icon_svg(&role, &clean_title, icon_cx, icon_cy, role_col);
+                svg.push_str(&icon_svg);
 
                 // Title and role badge
-                let text_x = icon_x + icon_box_size + 12.0;
+                let text_x = node.x + 46.0;
                 let title_y = node.y + node.height * 0.42;
                 let role_y = node.y + node.height * 0.72;
                 svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="bold">{}</text>
+                    r##"<text x="{}" y="{}" fill="#ffffff" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="bold">{}</text>
                     <text x="{}" y="{}" fill="{}" font-family="system-ui, -apple-system, sans-serif" font-size="10.5" font-weight="600">&lt;&lt;{}&gt;&gt;</text>"##,
-                    text_x, title_y, palette.text_main, escape_xml(&clean_title),
+                    text_x, title_y, escape_xml(&clean_title),
                     text_x, role_y, role_col, escape_xml(&role)
                 ));
 
-                // Floating Action Bar directly beneath selected node (Panel 2 from user image)
+                // Floating Action Bar directly beneath selected node
                 if is_selected {
                     let pill_w = 110.0f32;
                     let pill_h = 24.0f32;

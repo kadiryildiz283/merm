@@ -15,10 +15,17 @@ struct CachedDiagramRender {
     pixels: Vec<u32>,
 }
 
+struct CachedScaledDiagram {
+    svg_hash: u64,
+    scale: f32,
+    pixmap: resvg::tiny_skia::Pixmap,
+}
+
 pub struct SvgRasterizer {
     fontdb: Arc<resvg::usvg::fontdb::Database>,
     cached_tree: Mutex<Option<(String, Arc<resvg::usvg::Tree>)>>,
     cached_pixmap: Mutex<Option<resvg::tiny_skia::Pixmap>>,
+    cached_scaled_diagram: Mutex<Option<CachedScaledDiagram>>,
     cached_diagram_render: Mutex<Option<CachedDiagramRender>>,
     cached_overlay_render: Mutex<Option<(u64, u32, u32, resvg::tiny_skia::Pixmap)>>,
 }
@@ -90,6 +97,7 @@ impl SvgRasterizer {
             fontdb: Arc::new(fontdb),
             cached_tree: Mutex::new(None),
             cached_pixmap: Mutex::new(None),
+            cached_scaled_diagram: Mutex::new(None),
             cached_diagram_render: Mutex::new(None),
             cached_overlay_render: Mutex::new(None),
         }
@@ -108,7 +116,7 @@ impl SvgRasterizer {
             return Err("Invalid buffer dimensions".to_string());
         }
 
-        // Fast path: Check diagram raster cache (avoids expensive SVG re-parsing and re-rendering)
+        // Fast path 1: Check diagram raster cache (exact match including pan)
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         svg_data.hash(&mut hasher);
         let svg_hash = hasher.finish();
@@ -130,37 +138,6 @@ impl SvgRasterizer {
                 }
             }
         }
-
-        let tree = {
-            let mut cache = self.cached_tree.lock().unwrap();
-            if let Some((ref cached_str, ref tree)) = *cache {
-                if cached_str == svg_data {
-                    tree.clone()
-                } else {
-                    let opt = resvg::usvg::Options {
-                        fontdb: self.fontdb.clone(),
-                        ..Default::default()
-                    };
-                    let new_tree = Arc::new(
-                        resvg::usvg::Tree::from_str(svg_data, &opt)
-                            .map_err(|e| format!("SVG parse error: {e}"))?,
-                    );
-                    *cache = Some((svg_data.to_string(), new_tree.clone()));
-                    new_tree
-                }
-            } else {
-                let opt = resvg::usvg::Options {
-                    fontdb: self.fontdb.clone(),
-                    ..Default::default()
-                };
-                let new_tree = Arc::new(
-                    resvg::usvg::Tree::from_str(svg_data, &opt)
-                        .map_err(|e| format!("SVG parse error: {e}"))?,
-                );
-                *cache = Some((svg_data.to_string(), new_tree.clone()));
-                new_tree
-            }
-        };
 
         let bg_fill_color = match bg_color {
             Some(0) => resvg::tiny_skia::Color::TRANSPARENT,
@@ -193,10 +170,100 @@ impl SvgRasterizer {
             }
         };
 
-        let render_ts = resvg::tiny_skia::Transform::from_scale(transform.scale, transform.scale)
-            .post_translate(transform.pan_x, transform.pan_y);
+        // Fast path 2: Check if scaled diagram is already rasterized (<0.1ms blit when panning!)
+        let scaled_hit = {
+            let guard = self.cached_scaled_diagram.lock().unwrap();
+            if let Some(ref c) = *guard {
+                if c.svg_hash == svg_hash && (c.scale - transform.scale).abs() < 1e-4 {
+                    Some(c.pixmap.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
 
-        resvg::render(&tree, render_ts, &mut pixmap.as_mut());
+        if let Some(ref scaled_p) = scaled_hit {
+            pixmap.draw_pixmap(
+                transform.pan_x.round() as i32,
+                transform.pan_y.round() as i32,
+                scaled_p.as_ref(),
+                &resvg::tiny_skia::PixmapPaint::default(),
+                resvg::tiny_skia::Transform::identity(),
+                None,
+            );
+        } else {
+            let tree = {
+                let mut cache = self.cached_tree.lock().unwrap();
+                if let Some((ref cached_str, ref tree)) = *cache {
+                    if cached_str == svg_data {
+                        tree.clone()
+                    } else {
+                        let opt = resvg::usvg::Options {
+                            fontdb: self.fontdb.clone(),
+                            ..Default::default()
+                        };
+                        let new_tree = Arc::new(
+                            resvg::usvg::Tree::from_str(svg_data, &opt)
+                                .map_err(|e| format!("SVG parse error: {e}"))?,
+                        );
+                        *cache = Some((svg_data.to_string(), new_tree.clone()));
+                        new_tree
+                    }
+                } else {
+                    let opt = resvg::usvg::Options {
+                        fontdb: self.fontdb.clone(),
+                        ..Default::default()
+                    };
+                    let new_tree = Arc::new(
+                        resvg::usvg::Tree::from_str(svg_data, &opt)
+                            .map_err(|e| format!("SVG parse error: {e}"))?,
+                    );
+                    *cache = Some((svg_data.to_string(), new_tree.clone()));
+                    new_tree
+                }
+            };
+
+            let tw = tree.size().width();
+            let th = tree.size().height();
+            let sw = ((tw * transform.scale).ceil() as u32).max(1);
+            let sh = ((th * transform.scale).ceil() as u32).max(1);
+
+            if sw <= 4096 && sh <= 4096 {
+                if let Some(mut scaled_p) = resvg::tiny_skia::Pixmap::new(sw, sh) {
+                    let render_ts =
+                        resvg::tiny_skia::Transform::from_scale(transform.scale, transform.scale);
+                    resvg::render(&tree, render_ts, &mut scaled_p.as_mut());
+
+                    pixmap.draw_pixmap(
+                        transform.pan_x.round() as i32,
+                        transform.pan_y.round() as i32,
+                        scaled_p.as_ref(),
+                        &resvg::tiny_skia::PixmapPaint::default(),
+                        resvg::tiny_skia::Transform::identity(),
+                        None,
+                    );
+
+                    let mut guard = self.cached_scaled_diagram.lock().unwrap();
+                    *guard = Some(CachedScaledDiagram {
+                        svg_hash,
+                        scale: transform.scale,
+                        pixmap: scaled_p,
+                    });
+                } else {
+                    let render_ts =
+                        resvg::tiny_skia::Transform::from_scale(transform.scale, transform.scale)
+                            .post_translate(transform.pan_x, transform.pan_y);
+                    resvg::render(&tree, render_ts, &mut pixmap.as_mut());
+                }
+            } else {
+                let render_ts =
+                    resvg::tiny_skia::Transform::from_scale(transform.scale, transform.scale)
+                        .post_translate(transform.pan_x, transform.pan_y);
+                resvg::render(&tree, render_ts, &mut pixmap.as_mut());
+            }
+        }
 
         let rgba = pixmap.data();
         let (chunks, _) = rgba.as_chunks::<4>();
@@ -213,19 +280,33 @@ impl SvgRasterizer {
                 }
             });
 
-        // Cache rendered pixels for instantaneous redraw during typing / split scrolling
+        // Cache rendered pixels for instantaneous redraw when cursor is stationary
         {
             let mut cache_guard = self.cached_diagram_render.lock().unwrap();
-            *cache_guard = Some(CachedDiagramRender {
-                svg_hash,
-                scale: transform.scale,
-                pan_x: transform.pan_x,
-                pan_y: transform.pan_y,
-                width,
-                height,
-                bg_color,
-                pixels: dest_buffer[..len].to_vec(),
-            });
+            if let Some(ref mut c) = *cache_guard {
+                c.svg_hash = svg_hash;
+                c.scale = transform.scale;
+                c.pan_x = transform.pan_x;
+                c.pan_y = transform.pan_y;
+                c.width = width;
+                c.height = height;
+                c.bg_color = bg_color;
+                if c.pixels.len() != len {
+                    c.pixels.resize(len, 0);
+                }
+                c.pixels.copy_from_slice(&dest_buffer[..len]);
+            } else {
+                *cache_guard = Some(CachedDiagramRender {
+                    svg_hash,
+                    scale: transform.scale,
+                    pan_x: transform.pan_x,
+                    pan_y: transform.pan_y,
+                    width,
+                    height,
+                    bg_color,
+                    pixels: dest_buffer[..len].to_vec(),
+                });
+            }
         }
 
         *pixmap_guard = Some(pixmap);
@@ -237,6 +318,9 @@ impl SvgRasterizer {
             *g = None;
         }
         if let Ok(mut g) = self.cached_overlay_render.lock() {
+            *g = None;
+        }
+        if let Ok(mut g) = self.cached_scaled_diagram.lock() {
             *g = None;
         }
     }
@@ -256,23 +340,10 @@ impl SvgRasterizer {
         svg_data.hash(&mut hasher);
         let overlay_hash = hasher.finish();
 
-        // 1. Check if cached overlay pixmap matches
-        let cached_hit = {
-            let guard = self.cached_overlay_render.lock().unwrap();
-            if let Some((h, w, hgt, ref p)) = *guard {
-                if h == overlay_hash && w == width && hgt == height {
-                    Some(p.clone())
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        };
+        let mut guard = self.cached_overlay_render.lock().unwrap();
+        let needs_render = !matches!(*guard, Some((h, w, hgt, _)) if h == overlay_hash && w == width && hgt == height);
 
-        let pixmap = if let Some(p) = cached_hit {
-            p
-        } else {
+        if needs_render {
             let opt = resvg::usvg::Options {
                 fontdb: self.fontdb.clone(),
                 ..Default::default()
@@ -286,12 +357,10 @@ impl SvgRasterizer {
             let render_ts = resvg::tiny_skia::Transform::identity();
             resvg::render(&tree, render_ts, &mut p.as_mut());
 
-            let mut guard = self.cached_overlay_render.lock().unwrap();
-            *guard = Some((overlay_hash, width, height, p.clone()));
-            p
-        };
+            *guard = Some((overlay_hash, width, height, p));
+        }
 
-        // 2. High-performance Rayon multi-threaded alpha-blend
+        let pixmap = &guard.as_ref().unwrap().3;
         let rgba = pixmap.data();
         let (chunks, _) = rgba.as_chunks::<4>();
         let len = chunks.len().min(dest_buffer.len());

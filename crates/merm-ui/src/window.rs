@@ -162,7 +162,7 @@ impl MermAppWindow {
             0.0
         };
         let top_h = 36.0 * ui_scale;
-        let bottom_status_h = 24.0 * ui_scale;
+        let bottom_status_h = 0.0;
 
         if !self.initial_fit_done {
             if let Some(ref diagram) = self.app_state.current_diagram {
@@ -261,7 +261,7 @@ impl MermAppWindow {
 impl ApplicationHandler for MermAppWindow {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
-            let initial_title = format!("merm | {}", self.app_state.hud_status());
+            let initial_title = self.app_state.hud_status();
             let win_attr = Window::default_attributes()
                 .with_title(initial_title)
                 .with_inner_size(winit::dpi::LogicalSize::new(1600.0, 1000.0))
@@ -451,7 +451,7 @@ impl ApplicationHandler for MermAppWindow {
                     }
                     UiAction::None => {
                         if let Some(ref w) = self.window {
-                            let title = format!("merm | {}", self.app_state.hud_status());
+                            let title = self.app_state.hud_status();
                             w.set_title(&title);
                             w.request_redraw();
                         }
@@ -463,7 +463,7 @@ impl ApplicationHandler for MermAppWindow {
                             return;
                         }
                         if let Some(ref w) = self.window {
-                            let title = format!("merm | {}", self.app_state.hud_status());
+                            let title = self.app_state.hud_status();
                             w.set_title(&title);
                             w.request_redraw();
                         }
@@ -664,7 +664,7 @@ impl ApplicationHandler for MermAppWindow {
                             if cx >= w - 245.0 * ui_scale && cx <= w - 150.0 * ui_scale {
                                 self.app_state.copy_report_to_clipboard();
                                 if let Some(ref w) = self.window {
-                                    let title = format!("merm | {}", self.app_state.hud_status());
+                                    let title = self.app_state.hud_status();
                                     w.set_title(&title);
                                     w.request_redraw();
                                 }
@@ -697,7 +697,7 @@ impl ApplicationHandler for MermAppWindow {
                                 self.app_state.status_message =
                                     "Split buffer closed (maximized diagram)".to_string();
                                 if let Some(ref w) = self.window {
-                                    let title = format!("merm | {}", self.app_state.hud_status());
+                                    let title = self.app_state.hud_status();
                                     w.set_title(&title);
                                     w.request_redraw();
                                 }
@@ -720,7 +720,7 @@ impl ApplicationHandler for MermAppWindow {
                             clicked_line + 1
                         );
                         if let Some(ref w) = self.window {
-                            let title = format!("merm | {}", self.app_state.hud_status());
+                            let title = self.app_state.hud_status();
                             w.set_title(&title);
                             w.request_redraw();
                         }
@@ -741,29 +741,7 @@ impl ApplicationHandler for MermAppWindow {
                         }
                         self.app_state.handle_key_action(action);
                         if let Some(ref w) = self.window {
-                            let title = format!("merm | {}", self.app_state.hud_status());
-                            w.set_title(&title);
-                            w.request_redraw();
-                        }
-                        return;
-                    }
-
-                    // 4. Click on bottom command line
-                    let cmd_h = 28.0 * ui_scale;
-                    if win_h > 0 && cy >= (win_h as f64 - cmd_h) {
-                        if self.app_state.modal.mode == UiMode::Report {
-                            self.app_state.modal.mode = UiMode::Command;
-                            if self.app_state.modal.command_buffer.is_empty() {
-                                self.app_state.modal.command_buffer = "&".to_string();
-                            }
-                        } else {
-                            self.app_state.modal.mode = UiMode::Command;
-                            if self.app_state.modal.command_buffer.is_empty() {
-                                self.app_state.modal.command_buffer = ":".to_string();
-                            }
-                        }
-                        if let Some(ref w) = self.window {
-                            let title = format!("merm | {}", self.app_state.hud_status());
+                            let title = self.app_state.hud_status();
                             w.set_title(&title);
                             w.request_redraw();
                         }
@@ -831,7 +809,7 @@ impl ApplicationHandler for MermAppWindow {
                             );
                         }
                         if let Some(ref w) = self.window {
-                            let title = format!("merm | {}", self.app_state.hud_status());
+                            let title = self.app_state.hud_status();
                             w.set_title(&title);
                             w.request_redraw();
                         }
@@ -840,7 +818,7 @@ impl ApplicationHandler for MermAppWindow {
                         self.mouse_dragging = true;
                         self.app_state.select_node(None);
                         if let Some(ref w) = self.window {
-                            let title = format!("merm | {}", self.app_state.hud_status());
+                            let title = self.app_state.hud_status();
                             w.set_title(&title);
                             w.request_redraw();
                         }
@@ -918,11 +896,12 @@ impl ApplicationHandler for MermAppWindow {
             ));
             needs_redraw = true;
         } else if self.dragging_node_idx.is_some() || self.mouse_dragging {
-            event_loop.set_control_flow(ControlFlow::Poll);
-            needs_redraw = true;
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + std::time::Duration::from_millis(8),
+            ));
         } else {
             event_loop.set_control_flow(ControlFlow::WaitUntil(
-                Instant::now() + std::time::Duration::from_millis(25),
+                Instant::now() + std::time::Duration::from_millis(32),
             ));
         }
 
@@ -933,7 +912,7 @@ impl ApplicationHandler for MermAppWindow {
 
         if needs_redraw {
             if let Some(ref w) = self.window {
-                let title = format!("merm | {}", self.app_state.hud_status());
+                let title = self.app_state.hud_status();
                 w.set_title(&title);
                 w.request_redraw();
             }

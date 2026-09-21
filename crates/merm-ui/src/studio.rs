@@ -20,7 +20,7 @@ impl StudioOverlay {
         };
 
         let top_h = 36.0 * ui_scale;
-        let bottom_status_h = 24.0 * ui_scale;
+        let bottom_status_h = 0.0;
         let is_ast_view = app_state.active_sidebar_tab == SidebarTab::AstView;
         let sidebar_w = if app_state.show_left_sidebar && !is_ast_view {
             210.0 * ui_scale
@@ -108,18 +108,7 @@ impl StudioOverlay {
             );
         }
 
-        // 6. Bottom Window Statusline
-        Self::render_status_bar(
-            app_state,
-            w,
-            h,
-            bottom_status_h,
-            ui_scale,
-            &palette,
-            &mut svg,
-        );
-
-        // 7. Centered Command Palette Modal (if open)
+        // 6. Centered Command Palette Modal (if open)
         if app_state.command_palette_visible || app_state.modal.mode == UiMode::Command {
             Self::render_command_palette(app_state, w, h, ui_scale, &palette, &mut svg);
         }
@@ -1362,6 +1351,7 @@ impl StudioOverlay {
         }
     }
 
+    #[allow(dead_code)]
     fn render_status_bar(
         app_state: &AppState,
         w: f32,
@@ -1603,7 +1593,7 @@ impl StudioHitTester {
         };
 
         let top_h = 36.0 * ui_scale;
-        let bottom_status_h = 24.0 * ui_scale;
+        let bottom_status_h = 0.0;
         let sidebar_w = if app_state.show_left_sidebar {
             210.0 * ui_scale
         } else {

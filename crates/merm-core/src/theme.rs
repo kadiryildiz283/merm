@@ -382,25 +382,233 @@ impl ColorPalette {
         let t = title.to_lowercase();
         let r = role.to_lowercase();
         if t.contains("auth") {
-            "#e5a93c"
+            "#f59e0b" // vibrant amber
         } else if t.contains("notification") {
-            "#f43f5e"
+            "#ec4899" // vibrant magenta / hot pink
         } else if t.contains("gateway") {
-            "#3fb950"
+            "#10b981" // vibrant emerald
         } else if t.contains("user service") || (t.contains("user") && r.contains("service")) {
-            "#388bfd"
+            "#0ea5e9" // vibrant sky blue
         } else if t.contains("mobile") || t.contains("web") || t.contains("frontend") {
-            "#bc8cff"
+            "#a855f7" // vibrant purple
         } else if t.contains("postgres") || r.contains("database") || r.contains("db") {
-            "#39c5cf"
+            "#06b6d4" // vibrant cyan / teal
         } else if t.contains("redis") || r.contains("cache") {
-            "#ff6b6b"
+            "#ef4444" // vibrant coral red
         } else if t.contains("queue") || r.contains("queue") || t.contains("kafka") {
-            "#79c0ff"
+            "#6366f1" // vibrant indigo
         } else if t.contains("user") || r.contains("actor") {
-            "#388bfd"
+            "#0284c7" // vibrant blue
         } else {
-            self.role_color(role)
+            let mut h: u64 = 0;
+            for b in format!("{} {}", role, title).bytes() {
+                h = h.wrapping_mul(31).wrapping_add(b as u64);
+            }
+            match h % 8 {
+                0 => "#10b981", // emerald
+                1 => "#0284c7", // blue
+                2 => "#a855f7", // purple
+                3 => "#f59e0b", // amber
+                4 => "#ec4899", // pink
+                5 => "#06b6d4", // cyan
+                6 => "#ef4444", // coral
+                _ => "#6366f1", // indigo
+            }
+        }
+    }
+
+    pub fn node_role_bg(&self, role: &str, title: &str) -> &'static str {
+        let t = title.to_lowercase();
+        let r = role.to_lowercase();
+        if t.contains("auth") {
+            "#251806" // deep tinted amber
+        } else if t.contains("notification") {
+            "#26081e" // deep tinted pink
+        } else if t.contains("gateway") {
+            "#041f16" // deep tinted emerald
+        } else if t.contains("user service") || (t.contains("user") && r.contains("service")) {
+            "#06192d" // deep tinted blue
+        } else if t.contains("mobile") || t.contains("web") || t.contains("frontend") {
+            "#170b28" // deep tinted purple
+        } else if t.contains("postgres") || r.contains("database") || r.contains("db") {
+            "#041d24" // deep tinted cyan
+        } else if t.contains("redis") || r.contains("cache") {
+            "#250a0d" // deep tinted red
+        } else if t.contains("queue") || r.contains("queue") || t.contains("kafka") {
+            "#0f1229" // deep tinted indigo
+        } else if t.contains("user") || r.contains("actor") {
+            "#07152b" // deep tinted blue
+        } else {
+            let mut h: u64 = 0;
+            for b in format!("{} {}", role, title).bytes() {
+                h = h.wrapping_mul(31).wrapping_add(b as u64);
+            }
+            match h % 8 {
+                0 => "#041f16", // emerald
+                1 => "#07152b", // blue
+                2 => "#170b28", // purple
+                3 => "#251806", // amber
+                4 => "#26081e", // pink
+                5 => "#041d24", // cyan
+                6 => "#250a0d", // coral
+                _ => "#0f1229", // indigo
+            }
+        }
+    }
+
+    pub fn node_role_icon_svg(
+        &self,
+        role: &str,
+        title: &str,
+        cx: f32,
+        cy: f32,
+        col: &str,
+    ) -> String {
+        let t = title.to_lowercase();
+        let r = role.to_lowercase();
+        if t.contains("postgres") || r.contains("database") || r.contains("db") {
+            format!(
+                r##"<g stroke="{col}" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <ellipse cx="{cx}" cy="{}" rx="8" ry="3"/>
+                    <path d="M {} {} C {} {}, {} {}, {} {}"/>
+                    <path d="M {} {} C {} {}, {} {}, {} {}"/>
+                    <line x1="{}" y1="{}" x2="{}" y2="{}"/>
+                    <line x1="{}" y1="{}" x2="{}" y2="{}"/>
+                </g>"##,
+                cy - 6.0,
+                cx - 8.0,
+                cy,
+                cx - 8.0,
+                cy + 3.0,
+                cx + 8.0,
+                cy + 3.0,
+                cx + 8.0,
+                cy,
+                cx - 8.0,
+                cy + 6.0,
+                cx - 8.0,
+                cy + 9.0,
+                cx + 8.0,
+                cy + 9.0,
+                cx + 8.0,
+                cy + 6.0,
+                cx - 8.0,
+                cy - 6.0,
+                cx - 8.0,
+                cy + 6.0,
+                cx + 8.0,
+                cy - 6.0,
+                cx + 8.0,
+                cy + 6.0
+            )
+        } else if t.contains("redis") || r.contains("cache") {
+            format!(
+                r##"<g stroke="{col}" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M {cx} {} L {} {} L {cx} {} L {} {} Z"/>
+                    <path d="M {} {} L {cx} {} L {} {}"/>
+                    <path d="M {} {} L {cx} {} L {} {}"/>
+                </g>"##,
+                cy - 7.0,
+                cx + 8.0,
+                cy - 3.5,
+                cy,
+                cx - 8.0,
+                cy - 3.5,
+                cx - 8.0,
+                cy + 0.5,
+                cy + 4.0,
+                cx + 8.0,
+                cy + 0.5,
+                cx - 8.0,
+                cy + 4.5,
+                cy + 8.0,
+                cx + 8.0,
+                cy + 4.5
+            )
+        } else if t.contains("queue") || r.contains("queue") || t.contains("kafka") {
+            format!(
+                r##"<g stroke="{col}" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M {} {} L {} {} L {} {} L {} {}"/>
+                    <path d="M {} {} L {} {} L {} {} L {} {}"/>
+                    <circle cx="{}" cy="{cy}" r="1.3" fill="{col}"/>
+                    <circle cx="{}" cy="{cy}" r="1.3" fill="{col}"/>
+                </g>"##,
+                cx - 5.0,
+                cy - 7.0,
+                cx - 8.0,
+                cy - 7.0,
+                cx - 8.0,
+                cy + 7.0,
+                cx - 5.0,
+                cy + 7.0,
+                cx + 5.0,
+                cy - 7.0,
+                cx + 8.0,
+                cy - 7.0,
+                cx + 8.0,
+                cy + 7.0,
+                cx + 5.0,
+                cy + 7.0,
+                cx - 2.5,
+                cx + 2.5
+            )
+        } else if t.contains("mobile") {
+            format!(
+                r##"<g stroke="{col}" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="{}" y="{}" width="12" height="18" rx="2.5"/>
+                    <line x1="{}" y1="{}" x2="{}" y2="{}"/>
+                </g>"##,
+                cx - 6.0,
+                cy - 9.0,
+                cx - 2.0,
+                cy + 5.5,
+                cx + 2.0,
+                cy + 5.5
+            )
+        } else if t.contains("web") || t.contains("frontend") {
+            format!(
+                r##"<g stroke="{col}" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="{}" y="{}" width="16" height="11" rx="2"/>
+                    <line x1="{}" y1="{}" x2="{}" y2="{}"/>
+                </g>"##,
+                cx - 8.0,
+                cy - 8.0,
+                cx - 10.0,
+                cy + 7.0,
+                cx + 10.0,
+                cy + 7.0
+            )
+        } else if t.contains("user") || r.contains("actor") {
+            format!(
+                r##"<g stroke="{col}" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="{cx}" cy="{}" r="4.5"/>
+                    <path d="M {} {} C {} {}, {} {}, {} {}"/>
+                </g>"##,
+                cy - 4.5,
+                cx - 9.0,
+                cy + 9.0,
+                cx - 9.0,
+                cy + 3.0,
+                cx + 9.0,
+                cy + 3.0,
+                cx + 9.0,
+                cy + 9.0
+            )
+        } else {
+            format!(
+                r##"<g stroke="{col}" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="{cx}" cy="{cy}" r="3.5"/>
+                    <path d="M {cx} {} L {cx} {} M {cx} {} L {cx} {} M {} {cy} L {} {cy} M {} {cy} L {} {cy}"/>
+                </g>"##,
+                cy - 8.5,
+                cy - 6.0,
+                cy + 6.0,
+                cy + 8.5,
+                cx - 8.5,
+                cx - 6.0,
+                cx + 6.0,
+                cx + 8.5
+            )
         }
     }
 
