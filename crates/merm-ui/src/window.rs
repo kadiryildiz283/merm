@@ -52,7 +52,6 @@ pub struct MermAppWindow {
     dragging_node_idx: Option<usize>,
     drag_node_offset: (f32, f32),
     pending_drag_pos: Option<(usize, f32, f32)>,
-    last_drag_render: Instant,
     current_surface_size: (u32, u32),
     mouse_press_pos: Option<(f64, f64)>,
     mouse_press_hit_idx: Option<usize>,
@@ -88,7 +87,6 @@ impl MermAppWindow {
             dragging_node_idx: None,
             drag_node_offset: (0.0, 0.0),
             pending_drag_pos: None,
-            last_drag_render: Instant::now(),
             current_surface_size: (0, 0),
             mouse_press_pos: None,
             mouse_press_hit_idx: None,
@@ -106,6 +104,8 @@ impl MermAppWindow {
     }
 
     fn redraw(&mut self) {
+        let frame_start = self.app_state.telemetry.begin_frame();
+
         let window = match self.window.as_ref() {
             Some(w) => w.clone(),
             None => return,
@@ -134,12 +134,14 @@ impl MermAppWindow {
             .buffer_mut()
             .expect("Failed to get softbuffer buffer");
 
+        let update_start = Instant::now();
         // Drain any incoming IPC commands from Neovim / Helix
         if let Some(ref rx) = self.ipc_rx {
             while let Ok(cmd) = rx.try_recv() {
                 self.app_state.handle_ipc_command(cmd);
             }
         }
+        let update_ms = update_start.elapsed().as_secs_f32() * 1000.0;
 
         let bg_color = parse_hex_color(&self.app_state.theme.palette().background);
         let hud_height = 32u32;
@@ -161,9 +163,10 @@ impl MermAppWindow {
             }
         }
 
+        let render_start = Instant::now();
         // Rasterize active diagram SVG using tiny-skia + resvg
         if let Some(ref diagram) = self.app_state.current_diagram {
-            if let Err(e) = self.rasterizer.rasterize(
+            match self.rasterizer.rasterize(
                 &diagram.svg,
                 &self.app_state.transform,
                 width,
@@ -171,14 +174,23 @@ impl MermAppWindow {
                 &mut buffer,
                 Some(bg_color),
             ) {
-                log::error!("Rasterization failed: {}", e);
-                buffer.fill(bg_color);
+                Ok(cached) => {
+                    if cached {
+                        self.app_state.telemetry.record_cache_hit();
+                    } else {
+                        self.app_state.telemetry.record_cache_miss();
+                    }
+                }
+                Err(e) => {
+                    log::error!("Rasterization failed: {}", e);
+                    buffer.fill(bg_color);
+                }
             }
         } else {
             buffer.fill(bg_color);
         }
 
-        // Render vector UI Overlay (HUD bar, Command input, NodeTest drawer, Report modal)
+        // Render vector UI Overlay (HUD bar, Command input, NodeTest drawer, Report modal, Telemetry HUD)
         if let Some(overlay_svg) = Self::build_overlay_svg(&self.app_state, width, height) {
             if let Err(e) =
                 self.rasterizer
@@ -189,7 +201,37 @@ impl MermAppWindow {
         }
 
         buffer.present().expect("Failed to present buffer");
+        let render_ms = render_start.elapsed().as_secs_f32() * 1000.0;
         self.last_frame = Instant::now();
+
+        let (visible_nodes, total_nodes) = if let Some(ref diag) = self.app_state.current_diagram {
+            let total = diag.nodes.len();
+            let pad = 20.0;
+            let visible = diag
+                .nodes
+                .iter()
+                .filter(|n| {
+                    let (sx, sy) = self.app_state.transform.world_to_screen(n.x, n.y);
+                    let sw = n.width * self.app_state.transform.scale;
+                    let sh = n.height * self.app_state.transform.scale;
+                    sx + sw >= -pad
+                        && sx <= width as f32 + pad
+                        && sy + sh >= -pad
+                        && sy <= height as f32 + pad
+                })
+                .count();
+            (visible, total)
+        } else {
+            (0, 0)
+        };
+
+        self.app_state.telemetry.record_frame(
+            frame_start,
+            update_ms,
+            render_ms,
+            visible_nodes,
+            total_nodes,
+        );
     }
 
     pub fn build_overlay_svg(app_state: &AppState, width: u32, height: u32) -> Option<String> {
@@ -288,6 +330,160 @@ impl MermAppWindow {
                     ));
                 }
             }
+        }
+
+        // Focus Mode dimming scrim and indicator
+        if app_state.focus_mode_active {
+            if let Some(ref sel_id) = app_state.active_node_id {
+                svg.push_str(&format!(
+                    r##"<rect x="0" y="{}" width="{}" height="{}" fill="#000000" fill-opacity="0.45"/>"##,
+                    top_h, w, (h - top_h - (24.0 + 28.0) * ui_scale).max(0.0)
+                ));
+                let focus_font = (11.0 * ui_scale).round() as u32;
+                svg.push_str(&format!(
+                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1"/>"##,
+                    16.0 * ui_scale, top_h + 12.0 * ui_scale, 280.0 * ui_scale, 24.0 * ui_scale,
+                    palette.card_bg, palette.method_color
+                ));
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">🔍 FOCUS MODE: &lt;{}&gt; (Press 'F' to exit)</text>"##,
+                    24.0 * ui_scale, top_h + 28.0 * ui_scale, palette.method_color, focus_font, escape_xml(sel_id)
+                ));
+            }
+        }
+
+        // Dynamic 120 FPS Drag Preview Overlay
+        if let Some((drag_idx, drag_x, drag_y)) = app_state.active_drag_preview {
+            if let Some(ref diag) = app_state.current_diagram {
+                if let Some(node) = diag.nodes.get(drag_idx) {
+                    let (drag_sx, drag_sy) = app_state.transform.world_to_screen(drag_x, drag_y);
+                    let sw = node.width * app_state.transform.scale;
+                    let sh = node.height * app_state.transform.scale;
+
+                    // Dynamic tether lines to connected edges
+                    for edge in &diag.edges {
+                        let is_source = edge.from == node.id;
+                        let is_target = edge.to == node.id;
+                        if is_source || is_target {
+                            let other_id = if is_source { &edge.to } else { &edge.from };
+                            if let Some(other_node) = diag.nodes.iter().find(|n| &n.id == other_id)
+                            {
+                                let (other_sx, other_sy) = app_state.transform.world_to_screen(
+                                    other_node.x + other_node.width / 2.0,
+                                    other_node.y + other_node.height / 2.0,
+                                );
+                                let drag_center_x = drag_sx + sw / 2.0;
+                                let drag_center_y = drag_sy + sh / 2.0;
+
+                                svg.push_str(&format!(
+                                    r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="{}" stroke-dasharray="6,4" opacity="0.9"/>"##,
+                                    drag_center_x, drag_center_y, other_sx, other_sy,
+                                    palette.method_color, (2.0 * ui_scale).max(1.5)
+                                ));
+                            }
+                        }
+                    }
+
+                    // Ghost box at original position
+                    let (orig_sx, orig_sy) = app_state.transform.world_to_screen(node.x, node.y);
+                    svg.push_str(&format!(
+                        r##"<rect x="{}" y="{}" width="{}" height="{}" rx="{}" fill="none" stroke="{}" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.4"/>"##,
+                        orig_sx, orig_sy, sw, sh,
+                        (6.0 * app_state.transform.scale).clamp(4.0, 12.0),
+                        palette.badge_bg
+                    ));
+
+                    // Floating moving node card preview
+                    svg.push_str(&format!(
+                        r##"<rect x="{}" y="{}" width="{}" height="{}" rx="{}" fill="{}" fill-opacity="0.95" stroke="{}" stroke-width="{}"/>"##,
+                        drag_sx, drag_sy, sw, sh,
+                        (6.0 * app_state.transform.scale).clamp(4.0, 12.0),
+                        palette.card_bg, palette.method_color, (2.5 * ui_scale).max(2.0)
+                    ));
+
+                    // Title of dragged node
+                    let title_font = (12.0 * app_state.transform.scale).clamp(8.0, 20.0);
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">⚡ {}</text>"##,
+                        drag_sx + 10.0 * app_state.transform.scale,
+                        drag_sy + 20.0 * app_state.transform.scale,
+                        palette.method_color, title_font, escape_xml(&node.id)
+                    ));
+                }
+            }
+        }
+
+        // Performance Telemetry HUD Card (:perf, :fps)
+        if app_state.telemetry.enabled {
+            let card_w = 260.0 * ui_scale;
+            let card_h = 138.0 * ui_scale;
+            let card_x = w - card_w - 14.0 * ui_scale;
+            let card_y = top_h + 10.0 * ui_scale;
+
+            svg.push_str(&format!(
+                r##"<rect x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}" fill-opacity="0.95" stroke="{}" stroke-width="1.5"/>"##,
+                card_x, card_y, card_w, card_h, palette.card_bg, palette.method_color
+            ));
+
+            let telem_title_y = card_y + 18.0 * ui_scale;
+            let telem_font = (10.5 * ui_scale).round() as u32;
+            let line_gap = 18.0 * ui_scale;
+
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">⚡ PERFORMANCE TELEMETRY</text>"##,
+                card_x + 12.0 * ui_scale, telem_title_y, palette.method_color, telem_font
+            ));
+
+            let fps_color = if app_state.telemetry.fps >= 100.0 {
+                "#a6e3a1"
+            } else if app_state.telemetry.fps >= 60.0 {
+                "#f9e2af"
+            } else {
+                "#f38ba8"
+            };
+
+            let row1 = format!(
+                "FPS: {:>5.1} │ Frame: {:>4.1}ms",
+                app_state.telemetry.fps, app_state.telemetry.frame_time_ms
+            );
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
+                card_x + 12.0 * ui_scale, telem_title_y + line_gap, fps_color, telem_font, escape_xml(&row1)
+            ));
+
+            let row2 = format!(
+                "Update: {:>4.1}ms │ Render: {:>4.1}ms",
+                app_state.telemetry.update_time_ms, app_state.telemetry.render_time_ms
+            );
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
+                card_x + 12.0 * ui_scale, telem_title_y + line_gap * 2.0, palette.text_main, telem_font, escape_xml(&row2)
+            ));
+
+            let row3 = format!(
+                "Input Latency: {:>4.1}ms",
+                app_state.telemetry.input_latency_ms
+            );
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
+                card_x + 12.0 * ui_scale, telem_title_y + line_gap * 3.0, palette.text_sub, telem_font, escape_xml(&row3)
+            ));
+
+            let row4 = format!(
+                "Nodes: {}/{} │ Cache: {:>4.1}%",
+                app_state.telemetry.visible_nodes,
+                app_state.telemetry.total_nodes,
+                app_state.telemetry.cache_hit_rate
+            );
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
+                card_x + 12.0 * ui_scale, telem_title_y + line_gap * 4.0, palette.stereotype_color, telem_font, escape_xml(&row4)
+            ));
+
+            svg.push_str(&format!(
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">(:perf)</text>"##,
+                card_x + card_w - 10.0 * ui_scale, telem_title_y + line_gap * 5.0 + 4.0 * ui_scale, palette.badge_bg, (9.0 * ui_scale).round() as u32
+            ));
         }
 
         // 2. Full-screen / Drawer Modals: NodeTest & Inspector
@@ -1246,17 +1442,10 @@ impl ApplicationHandler for MermAppWindow {
                     let new_x = world_x - self.drag_node_offset.0;
                     let new_y = world_y - self.drag_node_offset.1;
                     self.pending_drag_pos = Some((idx, new_x, new_y));
+                    self.app_state.move_node_preview(idx, new_x, new_y);
 
-                    // Throttle node repositioning and SVG regeneration to ~120 FPS (8ms)
-                    // to eliminate mouse event flood while maintaining silky-smooth rendering
-                    if self.last_drag_render.elapsed() >= std::time::Duration::from_millis(8) {
-                        if let Some((i, nx, ny)) = self.pending_drag_pos.take() {
-                            self.app_state.move_node(i, nx, ny);
-                            self.last_drag_render = Instant::now();
-                        }
-                        if let Some(ref w) = self.window {
-                            w.request_redraw();
-                        }
+                    if let Some(ref w) = self.window {
+                        w.request_redraw();
                     }
                 } else if self.mouse_dragging {
                     if let Some((last_x, last_y)) = self.last_cursor_pos {
@@ -1549,6 +1738,8 @@ impl ApplicationHandler for MermAppWindow {
                     };
 
                     if is_click {
+                        self.pending_drag_pos = None;
+                        self.app_state.active_drag_preview = None;
                         // Click on a diagram node or text opens the Node Editor screen!
                         if let Some(idx) = self.mouse_press_hit_idx.take() {
                             let target_node_id = self
@@ -1566,12 +1757,14 @@ impl ApplicationHandler for MermAppWindow {
                             }
                         }
                     } else {
-                        // Was a drag move: commit final position
+                        // Was a drag move: commit final position to diagram & record undo delta
                         if let Some((i, nx, ny)) = self.pending_drag_pos.take() {
-                            self.app_state.move_node(i, nx, ny);
+                            self.app_state.finalize_node_move(i, nx, ny);
                             if let Some(ref w) = self.window {
                                 w.request_redraw();
                             }
+                        } else {
+                            self.app_state.active_drag_preview = None;
                         }
                     }
 
@@ -1612,9 +1805,9 @@ impl ApplicationHandler for MermAppWindow {
             }
         }
 
-        // Apply any pending node drag position before drawing
-        if let Some((i, nx, ny)) = self.pending_drag_pos.take() {
-            self.app_state.move_node(i, nx, ny);
+        // Apply any pending node drag preview position before drawing
+        if let Some((i, nx, ny)) = self.pending_drag_pos {
+            self.app_state.move_node_preview(i, nx, ny);
             needs_redraw = true;
         }
 

@@ -39,6 +39,10 @@ pub enum UiAction {
         stereotype: Option<String>,
         members: Vec<String>,
     },
+    Undo,
+    Redo,
+    TogglePerf,
+    ToggleFocus,
     Reload,
     Quit,
     None,
@@ -145,6 +149,9 @@ impl ModalController {
                     self.search_query.clear();
                     UiAction::SetMode(UiMode::Search)
                 }
+                'u' => UiAction::Undo,
+                '\x12' => UiAction::Redo, // Ctrl+R
+                'F' => UiAction::ToggleFocus,
                 'K' => {
                     if has_selected_node {
                         self.mode = UiMode::Inspector;

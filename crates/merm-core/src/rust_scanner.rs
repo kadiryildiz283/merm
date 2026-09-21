@@ -144,6 +144,42 @@ impl RustScanner {
         Ok(report)
     }
 
+    pub fn scan_single_file(file_path: &Path, root: &Path) -> Result<Vec<RustSymbol>, CoreError> {
+        let rel_path = file_path
+            .strip_prefix(root)
+            .unwrap_or(file_path)
+            .to_string_lossy()
+            .to_string();
+
+        if !file_path.exists() {
+            return Ok(Vec::new());
+        }
+
+        if file_path.extension().is_some_and(|ext| ext == "rs") {
+            let content = fs::read_to_string(file_path)
+                .map_err(|e| CoreError::BindingError(e.to_string()))?;
+            let syntax_tree =
+                syn::parse_file(&content).map_err(|e| CoreError::SyntaxError(e.to_string()))?;
+            Ok(Self::extract_symbols_from_ast(&syntax_tree, &rel_path))
+        } else {
+            let stem = file_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("module")
+                .to_string();
+            Ok(vec![RustSymbol {
+                name: stem,
+                kind: RustSymbolKind::Module,
+                file_path: rel_path,
+                doc_comment: None,
+                fields: Vec::new(),
+                methods: Vec::new(),
+                is_executable: true,
+                primary_entrypoint: Some("run".to_string()),
+            }])
+        }
+    }
+
     fn collect_rs_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), CoreError> {
         if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {

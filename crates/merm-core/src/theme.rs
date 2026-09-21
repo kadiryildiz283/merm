@@ -264,3 +264,65 @@ impl Default for ColorPalette {
         ThemeId::Monokai.palette()
     }
 }
+
+impl ColorPalette {
+    pub fn surface_base(&self) -> &str {
+        &self.card_bg
+    }
+
+    pub fn surface_elevated(&self) -> &str {
+        &self.card_header
+    }
+
+    pub fn surface_selected(&self) -> &str {
+        &self.badge_bg
+    }
+
+    pub fn border_subtle(&self) -> &str {
+        &self.divider
+    }
+
+    pub fn border_focused(&self) -> &str {
+        &self.border
+    }
+
+    pub fn text_primary(&self) -> &str {
+        &self.text_main
+    }
+
+    pub fn text_secondary(&self) -> &str {
+        &self.text_sub
+    }
+
+    pub fn accent_primary(&self) -> &str {
+        &self.method_color
+    }
+
+    pub fn accent_secondary(&self) -> &str {
+        &self.stereotype_color
+    }
+
+    pub fn status_ok(&self) -> &str {
+        &self.public_vis
+    }
+
+    pub fn status_warn(&self) -> &str {
+        &self.protected_vis
+    }
+
+    pub fn status_err(&self) -> &str {
+        &self.private_vis
+    }
+
+    pub fn edge_idle(&self) -> &str {
+        &self.divider
+    }
+
+    pub fn edge_active(&self) -> &str {
+        &self.edge_stroke
+    }
+
+    pub fn edge_divergent(&self) -> &str {
+        &self.private_vis
+    }
+}

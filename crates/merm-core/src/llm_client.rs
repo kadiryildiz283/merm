@@ -30,6 +30,92 @@ struct ChatCompletionResponse {
     choices: Vec<ChatChoice>,
 }
 
+/// Redact sensitive secrets (API tokens, private keys, passwords) from outbound LLM prompts
+pub fn scrub_secrets(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let lines: Vec<&str> = text.lines().collect();
+    for (i, line) in lines.iter().enumerate() {
+        let mut processed = line.to_string();
+
+        // 1. Private keys
+        if processed.contains("BEGIN ") && processed.contains("PRIVATE KEY") {
+            processed = "[REDACTED_PRIVATE_KEY]".to_string();
+        }
+
+        // 2. OpenAI / Anthropic / general API tokens: sk-...
+        if let Some(pos) = processed.find("sk-") {
+            let rest = &processed[pos..];
+            let token_end = rest
+                .find(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
+                .unwrap_or(rest.len());
+            if token_end >= 20 {
+                let to_replace = rest[..token_end].to_string();
+                processed = processed.replace(&to_replace, "[REDACTED_API_KEY]");
+            }
+        }
+
+        // 3. GitHub personal access tokens: ghp_, gho_, ghs_, github_pat_
+        for prefix in &["ghp_", "gho_", "ghs_", "github_pat_"] {
+            if let Some(pos) = processed.find(prefix) {
+                let rest = &processed[pos..];
+                let token_end = rest
+                    .find(|c: char| !c.is_alphanumeric() && c != '_')
+                    .unwrap_or(rest.len());
+                if token_end >= 20 {
+                    let to_replace = rest[..token_end].to_string();
+                    processed = processed.replace(&to_replace, "[REDACTED_GITHUB_TOKEN]");
+                }
+            }
+        }
+
+        // 4. AWS access keys: AKIA...
+        if let Some(pos) = processed.find("AKIA") {
+            let rest = &processed[pos..];
+            if rest.len() >= 20 {
+                let candidate = &rest[..20];
+                if candidate.chars().all(|c| c.is_ascii_alphanumeric()) {
+                    let to_replace = candidate.to_string();
+                    processed = processed.replace(&to_replace, "[REDACTED_AWS_KEY]");
+                }
+            }
+        }
+
+        // 5. Bearer tokens: Bearer ...
+        if let Some(pos) = processed.find("Bearer ") {
+            let rest = &processed[pos + 7..];
+            let token_end = rest
+                .find(|c: char| c.is_whitespace() || c == '"' || c == '\'')
+                .unwrap_or(rest.len());
+            if token_end >= 16 {
+                let to_replace = rest[..token_end].to_string();
+                processed = processed.replace(&to_replace, "[REDACTED_BEARER_TOKEN]");
+            }
+        }
+
+        // 6. Generic password / secret assignments
+        let lower = processed.to_lowercase();
+        for key in &["password", "secret", "api_key", "auth_token"] {
+            if let Some(idx) = lower.find(key) {
+                let after = &processed[idx + key.len()..];
+                if let Some(colon_pos) = after.find([':', '=']) {
+                    let val_part = after[colon_pos + 1..].trim();
+                    let clean_val = val_part.trim_matches(['"', '\'', ',', ';']);
+                    if clean_val.len() >= 8 && !clean_val.contains(' ') {
+                        let to_replace = clean_val.to_string();
+                        processed = processed.replace(&to_replace, "[REDACTED_SECRET]");
+                    }
+                }
+            }
+        }
+
+        out.push_str(&processed);
+        if i + 1 < lines.len() || text.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+    out
+}
+
 /// Abstract LLM provider interface for real or mock test execution
 pub trait LlmProvider: Send + Sync {
     fn query(
@@ -79,16 +165,19 @@ impl LlmProvider for HttpLlmProvider {
             format!("{}/chat/completions", self.endpoint.trim_end_matches('/'))
         };
 
+        let clean_system = scrub_secrets(system_prompt);
+        let clean_user = scrub_secrets(user_prompt);
+
         let request_payload = ChatCompletionRequest {
             model: self.model.clone(),
             messages: vec![
                 ChatMessage {
                     role: "system".to_string(),
-                    content: system_prompt.to_string(),
+                    content: clean_system,
                 },
                 ChatMessage {
                     role: "user".to_string(),
-                    content: user_prompt.to_string(),
+                    content: clean_user,
                 },
             ],
             temperature: Some(0.2),
@@ -255,9 +344,11 @@ impl LlmProvider for AgyLlmProvider {
         user_prompt: &str,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, CoreError>> + Send + '_>>
     {
+        let clean_system = scrub_secrets(system_prompt);
+        let clean_user = scrub_secrets(user_prompt);
         let full_prompt = format!(
             "CRITICAL DIRECTIVE: DO NOT call any external tools, run terminal commands, or invoke subagents. Provide your complete, final response directly and immediately as plain text.\n\nInstructions:\n{}\n\nTask:\n{}",
-            system_prompt, user_prompt
+            clean_system, clean_user
         );
         let bin = self.bin_path.clone();
         let model_opt = self.model.clone();
@@ -556,5 +647,30 @@ mod tests {
 
         let res = fallback.query("sys", "user").await.unwrap();
         assert_eq!(res, "Fallback success from secondary");
+    }
+
+    #[test]
+    fn test_scrub_secrets_redacts_keys_and_tokens() {
+        let text_with_openai_key = "Config: sk-abcdef1234567890abcdef1234567890";
+        let text_with_gh_token = "Authorization: token ghp_1234567890abcdefghijklmnopqrstuv";
+        let text_with_bearer = "Authorization: Bearer mysecrettoken1234567890";
+        let text_with_priv_key =
+            "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA0\n-----END RSA PRIVATE KEY-----";
+
+        let scrubbed_openai = scrub_secrets(text_with_openai_key);
+        assert!(!scrubbed_openai.contains("sk-abcdef"));
+        assert!(scrubbed_openai.contains("[REDACTED_API_KEY]"));
+
+        let scrubbed_gh = scrub_secrets(text_with_gh_token);
+        assert!(!scrubbed_gh.contains("ghp_"));
+        assert!(scrubbed_gh.contains("[REDACTED_GITHUB_TOKEN]"));
+
+        let scrubbed_bearer = scrub_secrets(text_with_bearer);
+        assert!(!scrubbed_bearer.contains("mysecrettoken"));
+        assert!(scrubbed_bearer.contains("[REDACTED_BEARER_TOKEN]"));
+
+        let scrubbed_priv_key = scrub_secrets(text_with_priv_key);
+        assert!(!scrubbed_priv_key.contains("BEGIN RSA PRIVATE KEY"));
+        assert!(scrubbed_priv_key.contains("[REDACTED_PRIVATE_KEY]"));
     }
 }

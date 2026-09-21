@@ -1,5 +1,7 @@
 use crate::ast_rewriter::LayoutDirection;
-use crate::engine::{ClassMemberInfo, DiagramNode, FlowEdge, RelationKind, RenderedDiagram};
+use crate::engine::{
+    ClassMemberInfo, DiagramNode, FlowEdge, NodeContractInfo, RelationKind, RenderedDiagram,
+};
 use crate::error::CoreError;
 use crate::theme::ColorPalette;
 use crate::xml_utils::escape_xml;
@@ -429,7 +431,7 @@ impl ClassDiagramParser {
                     max_char_len = max_char_len.max(len);
                 }
 
-                let card_w = (max_char_len as f32 * 7.8 + 52.0).clamp(260.0, 700.0);
+                let card_w = (max_char_len as f32 * 7.8 + 52.0).clamp(280.0, 720.0);
                 let attr_count = class.attributes.len().max(1);
                 let meth_count = class.methods.len().max(1);
                 let class_header_h = if class.doc_comment.is_some() && class.stereotype.is_some() {
@@ -439,8 +441,12 @@ impl ClassDiagramParser {
                 } else {
                     42.0f32
                 };
-                let card_h =
-                    class_header_h + (attr_count as f32 * 22.0) + (meth_count as f32 * 22.0) + 36.0;
+                let contract_h = 44.0f32; // Visible execution contract compartment
+                let card_h = class_header_h
+                    + contract_h
+                    + (attr_count as f32 * 22.0)
+                    + (meth_count as f32 * 22.0)
+                    + 36.0;
 
                 let (x, y) = if is_horizontal {
                     (current_offset, cross_offset)
@@ -460,6 +466,7 @@ impl ClassDiagramParser {
                     y,
                     width: card_w,
                     height: card_h,
+                    contract: Some(NodeContractInfo::default()),
                 });
 
                 if is_horizontal {

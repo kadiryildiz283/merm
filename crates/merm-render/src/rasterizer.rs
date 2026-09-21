@@ -103,7 +103,7 @@ impl SvgRasterizer {
         height: u32,
         dest_buffer: &mut [u32],
         bg_color: Option<u32>,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         if width == 0 || height == 0 || dest_buffer.len() < (width * height) as usize {
             return Err("Invalid buffer dimensions".to_string());
         }
@@ -126,7 +126,7 @@ impl SvgRasterizer {
                     && dest_buffer.len() >= c.pixels.len()
                 {
                     dest_buffer[..c.pixels.len()].copy_from_slice(&c.pixels);
-                    return Ok(());
+                    return Ok(true);
                 }
             }
         }
@@ -229,7 +229,7 @@ impl SvgRasterizer {
         }
 
         *pixmap_guard = Some(pixmap);
-        Ok(())
+        Ok(false)
     }
 
     pub fn invalidate_cache(&self) {

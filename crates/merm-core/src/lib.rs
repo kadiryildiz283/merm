@@ -7,6 +7,7 @@ pub mod engine;
 pub mod error;
 pub mod extractor;
 pub mod fabric_prompts;
+pub mod history;
 pub mod language_adapter;
 pub mod llm_client;
 pub mod manifest;
@@ -14,6 +15,7 @@ pub mod node_runner;
 pub mod quickjs_engine;
 pub mod rust_scanner;
 pub mod scaffolding;
+pub mod telemetry;
 pub mod theme;
 pub mod transactions;
 pub mod xml_utils;
@@ -35,8 +37,11 @@ pub use fabric_prompts::{
     ADVICE_COMPOSITE_SYSTEM, CREATE_DESIGN_DOCUMENT_SYSTEM, IMPROVE_PROMPT_SYSTEM,
     OK_EXECUTION_SYSTEM, SYSTEM_MD_TEMPLATE, TASK_PLANNER_SYSTEM,
 };
+pub use history::{GraphMutationDelta, UndoRedoStack};
 pub use language_adapter::{BuildStatus, LanguageAdapter, RustAdapter};
-pub use llm_client::{AgyLlmProvider, HttpLlmProvider, LlmClient, LlmProvider, MockLlmProvider};
+pub use llm_client::{
+    scrub_secrets, AgyLlmProvider, HttpLlmProvider, LlmClient, LlmProvider, MockLlmProvider,
+};
 pub use manifest::{NodeBinding, ProjectManifest, ProjectSettings, MANIFEST_FILE, MERM_DIR};
 pub use node_runner::{ExecutionResult, NodeRunner};
 pub use quickjs_engine::QuickJsEngine;
@@ -45,6 +50,7 @@ pub use rust_scanner::{
     RustSymbolKind,
 };
 pub use scaffolding::Scaffolder;
+pub use telemetry::PerformanceTelemetry;
 pub use theme::{ColorPalette, ThemeId};
 pub use transactions::TransactionSnapshot;
 pub use xml_utils::{escape_xml, split_and_escape_lines};

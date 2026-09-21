@@ -31,6 +31,29 @@ pub struct ClassMemberInfo {
     pub is_method: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct NodeContractInfo {
+    pub executable: bool,
+    pub input_expected: Option<String>,
+    pub input_default: Option<String>,
+    pub output_expected: Option<String>,
+    pub output_default: Option<String>,
+    pub last_status: Option<String>,
+}
+
+impl Default for NodeContractInfo {
+    fn default() -> Self {
+        Self {
+            executable: true,
+            input_expected: Some("JSON".to_string()),
+            input_default: Some("{}".to_string()),
+            output_expected: Some("String".to_string()),
+            output_default: Some("1".to_string()),
+            last_status: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct DiagramNode {
     pub id: String,
@@ -44,6 +67,7 @@ pub struct DiagramNode {
     pub y: f32,
     pub width: f32,
     pub height: f32,
+    pub contract: Option<NodeContractInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -233,9 +257,20 @@ impl RenderedDiagram {
                 let mid_x = (sx + ex) / 2.0;
                 let mid_y = (sy + ey) / 2.0;
 
+                let (actual_stroke, actual_w, opacity_attr) =
+                    if let Some(ref sel) = self.selected_node_id {
+                        if edge.from == *sel || edge.to == *sel {
+                            (palette.method_color.as_str(), "2.8", "opacity=\"1.0\" ")
+                        } else {
+                            (stroke_color.as_str(), "1.5", "opacity=\"0.35\" ")
+                        }
+                    } else {
+                        (stroke_color.as_str(), stroke_w, "")
+                    };
+
                 svg.push_str(&format!(
-                    r##"<path d="M {} {} C {} {}, {} {}, {} {}" fill="none" stroke="{}" stroke-width="{}" {}{}/>"##,
-                    sx, sy, c1x, c1y, c2x, c2y, ex, ey, stroke_color, stroke_w, dash_style, marker_attr
+                    r##"<path d="M {} {} C {} {}, {} {}, {} {}" fill="none" stroke="{}" stroke-width="{}" {}{}{}/>"##,
+                    sx, sy, c1x, c1y, c2x, c2y, ex, ey, actual_stroke, actual_w, dash_style, marker_attr, opacity_attr
                 ));
 
                 if let Some(ref lbl) = edge.label {
@@ -347,8 +382,49 @@ impl RenderedDiagram {
                     ));
                 }
 
+                // Contract Compartment
+                let mut cur_y = node.y + header_h;
+                if let Some(ref c) = node.contract {
+                    let contract_h = 44.0f32;
+                    svg.push_str(&format!(
+                        r##"<rect x="{}" y="{}" width="{}" height="{}" fill="{}" opacity="0.30"/>
+                        <line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
+                        node.x,
+                        cur_y,
+                        node.width,
+                        contract_h,
+                        palette.badge_bg,
+                        node.x,
+                        cur_y + contract_h,
+                        node.x + node.width,
+                        cur_y + contract_h,
+                        palette.divider
+                    ));
+
+                    let in_exp = c.input_expected.as_deref().unwrap_or("JSON");
+                    let in_def = c.input_default.as_deref().unwrap_or("{}");
+                    let out_exp = c.output_expected.as_deref().unwrap_or("String");
+                    let out_def = c.output_default.as_deref().unwrap_or("1");
+
+                    let status_str = if let Some(ref st) = c.last_status {
+                        format!(" │ {}", st)
+                    } else {
+                        String::new()
+                    };
+
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="11"><tspan fill="{}" font-weight="bold">IN </tspan><tspan fill="{}">Exp: {}</tspan><tspan fill="{}"> │ Def: {}</tspan></text>
+                        <text x="{}" y="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="11"><tspan fill="{}" font-weight="bold">OUT</tspan><tspan fill="{}"> Exp: {}</tspan><tspan fill="{}"> │ Def: {}</tspan><tspan fill="{}" font-weight="bold">{}</tspan></text>"##,
+                        node.x + 14.0, cur_y + 17.0, palette.method_color, palette.text_main, escape_xml(in_exp), palette.type_color, escape_xml(in_def),
+                        node.x + 14.0, cur_y + 34.0, palette.stereotype_color, palette.text_main, escape_xml(out_exp), palette.type_color, escape_xml(out_def), palette.public_vis, escape_xml(&status_str)
+                    ));
+
+                    cur_y += contract_h + 18.0;
+                } else {
+                    cur_y += 18.0;
+                }
+
                 // Attributes Compartment
-                let mut cur_y = node.y + header_h + 18.0;
                 if node.attributes.is_empty() {
                     svg.push_str(&format!(
                         r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="12" font-style="italic">  (no attributes)</text>"##,
@@ -816,6 +892,7 @@ fn extract_nodes_from_line(line: &str, nodes: &mut Vec<DiagramNode>) {
                         y: 0.0,
                         width,
                         height,
+                        contract: None,
                     });
                 }
             }
@@ -923,6 +1000,7 @@ impl LayoutEngine {
                         y: 0.0,
                         width: 180.0,
                         height: 52.0,
+                        contract: None,
                     });
                 }
                 if !nodes.iter().any(|n| n.id == edge.to) {
@@ -939,6 +1017,7 @@ impl LayoutEngine {
                         y: 0.0,
                         width: 180.0,
                         height: 52.0,
+                        contract: None,
                     });
                 }
                 edges.push(edge);

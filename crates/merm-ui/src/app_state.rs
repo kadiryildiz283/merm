@@ -1,8 +1,9 @@
 use merm_core::{
     AdviceProposal, Advisor, AgyLlmProvider, ArchitectureGraph, AstRewriter, CheckReport, Command,
-    DiagramExtractor, ExecutionResult, LayoutDirection, LayoutEngine, LlmProvider, NodeBinding,
-    NodeKind, NodeRunner, ProjectManifest, ReconciliationEngine, RenderedDiagram, RustScanner,
-    Scaffolder, ThemeId,
+    DiagramExtractor, ExecutionResult, GraphMutationDelta, LayoutDirection, LayoutEngine,
+    LlmProvider, NodeBinding, NodeKind, NodeRunner, PerformanceTelemetry, ProjectManifest,
+    ProjectScanReport, ReconciliationEngine, RenderedDiagram, RustScanner, Scaffolder, ThemeId,
+    UndoRedoStack,
 };
 use merm_ipc::EditorCommand;
 use merm_render::{BackendType, RenderEngine, Transform2D};
@@ -37,6 +38,14 @@ pub struct AppState {
     pub is_busy: bool,
     pub busy_message: String,
     pub worker: Option<AsyncWorker>,
+
+    // Performance & telemetry
+    pub telemetry: PerformanceTelemetry,
+    pub undo_stack: UndoRedoStack,
+    pub active_drag_preview: Option<(usize, f32, f32)>,
+    pub drag_start_pos: Option<(f32, f32)>,
+    pub focus_mode_active: bool,
+    pub cached_scan_report: Option<ProjectScanReport>,
 }
 
 impl AppState {
@@ -71,6 +80,12 @@ impl AppState {
             is_busy: false,
             busy_message: String::new(),
             worker: None,
+            telemetry: PerformanceTelemetry::new(),
+            undo_stack: UndoRedoStack::new(100),
+            active_drag_preview: None,
+            drag_start_pos: None,
+            focus_mode_active: false,
+            cached_scan_report: None,
         };
 
         // Try detecting current directory or parent project automatically
@@ -255,6 +270,7 @@ impl AppState {
             }
 
             let name = manifest.project_name.clone();
+            self.cached_scan_report = RustScanner::scan_project(&manifest.project_root).ok();
             self.manifest = Some(manifest);
 
             self.status_message = if pending_on_disk > 0 {
@@ -759,12 +775,19 @@ Commands:
   :add <class|struct|enum> <Name> - Add new node to diagram & scaffold Rust file
   :connect <From> <To> [lbl] - Connect two diagram nodes with arrow
   :test [Node] [Input]       - Execute node test harness with input/output capture
+  :perf / :fps               - Toggle live performance telemetry HUD
+  :focus                     - Toggle focus mode scrim on selected node
+  :u / :undo                 - Undo diagram mutations / node moves
+  :redo                      - Redo diagram mutations
   :help                      - Show this command reference
 
 Keybindings (NORMAL mode):
   : / &   - Open Command bar
   t       - Test selected node (opens Input/Output drawer)
   T       - Cycle theme
+  u       - Undo last node move / diagram mutation
+  Ctrl+R  - Redo last undone mutation
+  F       - Toggle Focus Mode on selected node
   a / o   - Add new class / struct
   c       - Connect nodes
   e / E   - Open interactive Node Editor drawer
@@ -885,6 +908,22 @@ Keybindings (NORMAL mode):
             }
             Command::Copy => {
                 self.copy_report_to_clipboard();
+            }
+            Command::Perf => {
+                self.telemetry.toggle();
+                self.status_message = format!(
+                    "Performance HUD: {}",
+                    if self.telemetry.enabled { "ON" } else { "OFF" }
+                );
+            }
+            Command::Undo => {
+                self.undo();
+            }
+            Command::Redo => {
+                self.redo();
+            }
+            Command::Focus => {
+                self.toggle_focus_mode();
             }
             Command::Custom(s) => {
                 if !s.trim().is_empty() {
@@ -1426,25 +1465,57 @@ Keybindings (NORMAL mode):
     pub fn handle_source_files_changed(&mut self, paths: &[PathBuf]) {
         if let Some(ref manifest) = self.manifest {
             log::info!("Live reload: {} source files changed", paths.len());
-            if let Ok(scan_report) = RustScanner::scan_project(&manifest.project_root) {
-                let code_graph = ArchitectureGraph::from_project_symbols(&scan_report);
-                let diag_graph = ArchitectureGraph::from_mermaid_source(&self.diagram_source);
-                let reconcil = ReconciliationEngine::reconcile(&diag_graph, &code_graph);
+            let mut scan_report = if let Some(ref cached) = self.cached_scan_report {
+                cached.clone()
+            } else {
+                RustScanner::scan_project(&manifest.project_root).unwrap_or_default()
+            };
 
-                if reconcil.is_synchronized() {
-                    self.status_message = format!(
-                        "Live sync: {} file(s) updated. Architecture synchronized ({} nodes).",
-                        paths.len(),
-                        reconcil.matched_nodes.len()
-                    );
+            // Incremental update: rescan only changed files
+            for path in paths {
+                let rel_path = path
+                    .strip_prefix(&manifest.project_root)
+                    .unwrap_or(path)
+                    .to_string_lossy()
+                    .to_string();
+
+                // Remove previous symbols from this file
+                scan_report.symbols.retain(|s| s.file_path != rel_path);
+
+                if path.is_file() {
+                    if let Ok(mut new_syms) =
+                        RustScanner::scan_single_file(path, &manifest.project_root)
+                    {
+                        scan_report.symbols.append(&mut new_syms);
+                    }
+                    if !scan_report.files.contains(&rel_path) {
+                        scan_report.files.push(rel_path);
+                    }
                 } else {
-                    let div_count = reconcil.divergences.len() + reconcil.diagram_only_nodes.len();
-                    self.status_message = format!(
-                        "Live sync: {} file(s) updated. Divergence detected ({} nodes)! Press 'i' or run &check.",
-                        paths.len(),
-                        div_count
-                    );
+                    // File was deleted
+                    scan_report.files.retain(|f| f != &rel_path);
                 }
+            }
+
+            self.cached_scan_report = Some(scan_report.clone());
+
+            let code_graph = ArchitectureGraph::from_project_symbols(&scan_report);
+            let diag_graph = ArchitectureGraph::from_mermaid_source(&self.diagram_source);
+            let reconcil = ReconciliationEngine::reconcile(&diag_graph, &code_graph);
+
+            if reconcil.is_synchronized() {
+                self.status_message = format!(
+                    "Live sync (incremental): {} file(s) updated. Architecture synchronized ({} nodes).",
+                    paths.len(),
+                    reconcil.matched_nodes.len()
+                );
+            } else {
+                let div_count = reconcil.divergences.len() + reconcil.diagram_only_nodes.len();
+                self.status_message = format!(
+                    "Live sync (incremental): {} file(s) updated. Divergence detected ({} nodes)! Press 'i' or run &check.",
+                    paths.len(),
+                    div_count
+                );
             }
         }
     }
@@ -1560,27 +1631,141 @@ Keybindings (NORMAL mode):
             } => {
                 self.save_node_edit(&node_id, stereotype.as_deref(), &members);
             }
+            UiAction::Undo => {
+                self.undo();
+            }
+            UiAction::Redo => {
+                self.redo();
+            }
+            UiAction::TogglePerf => {
+                self.telemetry.toggle();
+                self.status_message = format!(
+                    "Performance HUD: {}",
+                    if self.telemetry.enabled { "ON" } else { "OFF" }
+                );
+            }
+            UiAction::ToggleFocus => {
+                self.toggle_focus_mode();
+            }
             UiAction::SetMode(_) | UiAction::None => {}
         }
     }
 
-    pub fn move_node(&mut self, node_idx: usize, new_x: f32, new_y: f32) {
+    pub fn move_node_preview(&mut self, node_idx: usize, new_x: f32, new_y: f32) {
+        self.active_drag_preview = Some((node_idx, new_x, new_y));
+    }
+
+    pub fn finalize_node_move(&mut self, node_idx: usize, new_x: f32, new_y: f32) {
+        self.active_drag_preview = None;
         if let Some(ref mut diag) = self.current_diagram {
             if node_idx < diag.nodes.len() {
+                let node_id = diag.nodes[node_idx].id.clone();
+                let old_x = diag.nodes[node_idx].x;
+                let old_y = diag.nodes[node_idx].y;
+
                 diag.nodes[node_idx].x = new_x;
                 diag.nodes[node_idx].y = new_y;
                 diag.regenerate_svg(&self.theme.palette());
+
+                if (old_x - new_x).abs() > 1.0 || (old_y - new_y).abs() > 1.0 {
+                    self.undo_stack.push(GraphMutationDelta::MoveNode {
+                        node_id,
+                        old_x,
+                        old_y,
+                        new_x,
+                        new_y,
+                    });
+                }
             }
         }
+    }
+
+    pub fn move_node(&mut self, node_idx: usize, new_x: f32, new_y: f32) {
+        self.finalize_node_move(node_idx, new_x, new_y);
     }
 
     pub fn select_node(&mut self, node_id: Option<&str>) {
         if let Some(ref mut diag) = self.current_diagram {
             diag.selected_node_id = node_id.map(|s| s.to_string());
-            diag.regenerate_svg(&self.theme.palette());
         }
         self.active_node_id = node_id.map(|s| s.to_string());
         self.modal.active_test_node_id = node_id.map(|s| s.to_string());
+    }
+
+    pub fn undo(&mut self) {
+        if let Some(inverted) = self.undo_stack.undo() {
+            match inverted {
+                GraphMutationDelta::MoveNode {
+                    node_id,
+                    new_x,
+                    new_y,
+                    ..
+                } => {
+                    if let Some(ref mut diag) = self.current_diagram {
+                        if let Some(node) = diag.nodes.iter_mut().find(|n| n.id == node_id) {
+                            node.x = new_x;
+                            node.y = new_y;
+                        }
+                        diag.regenerate_svg(&self.theme.palette());
+                    }
+                    self.status_message = format!("Undo: Restored '{}' position", node_id);
+                }
+                GraphMutationDelta::DiagramSourceChange {
+                    source_after,
+                    description,
+                    ..
+                } => {
+                    self.diagram_source = source_after;
+                    self.recalculate_diagram();
+                    self.status_message = format!("Undo: {}", description);
+                }
+            }
+        } else {
+            self.status_message = "Already at oldest change (cannot undo)".to_string();
+        }
+    }
+
+    pub fn redo(&mut self) {
+        if let Some(delta) = self.undo_stack.redo() {
+            match delta {
+                GraphMutationDelta::MoveNode {
+                    node_id,
+                    new_x,
+                    new_y,
+                    ..
+                } => {
+                    if let Some(ref mut diag) = self.current_diagram {
+                        if let Some(node) = diag.nodes.iter_mut().find(|n| n.id == node_id) {
+                            node.x = new_x;
+                            node.y = new_y;
+                        }
+                        diag.regenerate_svg(&self.theme.palette());
+                    }
+                    self.status_message = format!("Redo: Moved '{}' position", node_id);
+                }
+                GraphMutationDelta::DiagramSourceChange {
+                    source_after,
+                    description,
+                    ..
+                } => {
+                    self.diagram_source = source_after;
+                    self.recalculate_diagram();
+                    self.status_message = format!("Redo: {}", description);
+                }
+            }
+        } else {
+            self.status_message = "Already at newest change (cannot redo)".to_string();
+        }
+    }
+
+    pub fn toggle_focus_mode(&mut self) {
+        self.focus_mode_active = !self.focus_mode_active;
+        if self.focus_mode_active {
+            let name = self.active_node_id.as_deref().unwrap_or("None");
+            self.status_message = format!("Architecture Focus Mode: ON (Focused on <{}>)", name);
+        } else {
+            self.status_message = "Architecture Focus Mode: OFF".to_string();
+        }
     }
 
     pub fn select_directional_node(&mut self, dx: f32, dy: f32) {

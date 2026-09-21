@@ -77,6 +77,14 @@ pub enum Command {
     ToggleSplit,
     /// Copies active split/report buffer to system clipboard (:copy, :yank, :y)
     Copy,
+    /// Toggles real-time performance telemetry overlay (:perf, :fps)
+    Perf,
+    /// Reverses the last architecture or diagram mutation (:u, :undo)
+    Undo,
+    /// Re-applies the last undone mutation (:redo)
+    Redo,
+    /// Toggles focus mode for active node (:focus)
+    Focus,
     /// Custom or unrecognized command
     Custom(String),
 }
@@ -210,6 +218,10 @@ impl Command {
             "clear" | "cls" => Command::Clear,
             "split" | "sp" | "chat" => Command::ToggleSplit,
             "copy" | "yank" | "y" | "cp" => Command::Copy,
+            "perf" | "fps" | "telemetry" => Command::Perf,
+            "undo" | "u" => Command::Undo,
+            "redo" => Command::Redo,
+            "focus" => Command::Focus,
             _ => Command::Custom(input.to_string()),
         }
     }
@@ -301,6 +313,12 @@ mod tests {
         assert_eq!(Command::parse(":dir LR"), Command::Dir("LR".to_string()));
         assert_eq!(Command::parse(":fit"), Command::Fit);
         assert_eq!(Command::parse(":reset"), Command::Reset);
+        assert_eq!(Command::parse(":perf"), Command::Perf);
+        assert_eq!(Command::parse(":fps"), Command::Perf);
+        assert_eq!(Command::parse(":u"), Command::Undo);
+        assert_eq!(Command::parse(":undo"), Command::Undo);
+        assert_eq!(Command::parse(":redo"), Command::Redo);
+        assert_eq!(Command::parse(":focus"), Command::Focus);
         assert_eq!(Command::parse(":clear"), Command::Clear);
     }
 }
