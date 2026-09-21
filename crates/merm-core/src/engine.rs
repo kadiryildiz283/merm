@@ -236,6 +236,7 @@ impl RenderedDiagram {
             let to_node = self.nodes.iter().find(|n| n.id == edge.to);
 
             if let (Some(f), Some(t)) = (from_node, to_node) {
+                let is_same_row = !is_horizontal && (f.y - t.y).abs() < 20.0;
                 let (sx, sy, ex, ey) = if is_horizontal {
                     (
                         f.x + f.width,
@@ -243,6 +244,22 @@ impl RenderedDiagram {
                         t.x,
                         t.y + t.height / 2.0,
                     )
+                } else if is_same_row {
+                    if f.x < t.x {
+                        (
+                            f.x + f.width,
+                            f.y + f.height / 2.0,
+                            t.x,
+                            t.y + t.height / 2.0,
+                        )
+                    } else {
+                        (
+                            f.x,
+                            f.y + f.height / 2.0,
+                            t.x + t.width,
+                            t.y + t.height / 2.0,
+                        )
+                    }
                 } else {
                     (
                         f.x + f.width / 2.0,
@@ -306,14 +323,9 @@ impl RenderedDiagram {
                     }
                 };
 
-                let (c1x, c1y, c2x, c2y) = if is_horizontal {
-                    if ex > sx {
-                        let mid_x = (sx + ex) / 2.0;
-                        (mid_x, sy, mid_x, ey)
-                    } else {
-                        let sweep_y = sy.max(ey) + 80.0;
-                        (sx, sweep_y, ex, sweep_y)
-                    }
+                let (c1x, c1y, c2x, c2y) = if is_horizontal || is_same_row {
+                    let mid_x = (sx + ex) / 2.0;
+                    (mid_x, sy, mid_x, ey)
                 } else if ey > sy {
                     let mid_y = (sy + ey) / 2.0;
                     (sx, mid_y, ex, mid_y)
@@ -327,8 +339,10 @@ impl RenderedDiagram {
 
                 let (actual_stroke, actual_w, opacity_attr) =
                     if let Some(ref sel) = self.selected_node_id {
-                        if edge.from == *sel || edge.to == *sel {
-                            (palette.method_color.as_str(), "2.8", "opacity=\"1.0\" ")
+                        if edge.to == *sel {
+                            ("#3fb950", "2.5", "opacity=\"1.0\" ")
+                        } else if edge.from == *sel {
+                            ("#f0883e", "2.5", "opacity=\"1.0\" ")
                         } else {
                             (stroke_color.as_str(), "1.5", "opacity=\"0.35\" ")
                         }
@@ -381,11 +395,8 @@ impl RenderedDiagram {
                 ));
             }
 
-            let is_class = !node.attributes.is_empty()
-                || !node.methods.is_empty()
-                || node.stereotype.is_some()
-                || node.doc_comment.is_some()
-                || self.is_class_diagram;
+            let is_class =
+                self.is_class_diagram || !node.attributes.is_empty() || !node.methods.is_empty();
 
             if is_class {
                 // Class Diagram Card
@@ -728,32 +739,20 @@ fn clean_label(raw: &str) -> Option<String> {
 }
 
 fn sanitize_line_for_node_extraction(line: &str) -> String {
-    let is_edge_line = line.contains("-->")
-        || line.contains("-.->")
-        || line.contains(".->")
-        || line.contains("==>")
-        || line.contains("---");
-
-    if !is_edge_line {
+    if !line.contains('|') {
         return line.to_string();
     }
 
     let mut out = String::with_capacity(line.len());
-    let mut in_quotes = false;
     let mut in_pipe = false;
 
     for c in line.chars() {
-        if c == '"' {
-            in_quotes = !in_quotes;
-            out.push(' ');
-            continue;
-        }
         if c == '|' {
             in_pipe = !in_pipe;
             out.push(' ');
             continue;
         }
-        if in_quotes || in_pipe {
+        if in_pipe {
             out.push(' ');
         } else {
             out.push(c);
@@ -971,8 +970,8 @@ fn extract_nodes_from_line(line: &str, nodes: &mut Vec<DiagramNode>) {
 
                 let _line_count = lines.len();
                 let max_len = lines.iter().map(|l| l.chars().count()).max().unwrap_or(8);
-                let width = (max_len as f32 * 7.5 + 48.0).clamp(210.0, 520.0);
-                let height = 64.0f32;
+                let width = (max_len as f32 * 7.5 + 48.0).clamp(195.0, 240.0);
+                let height = 54.0f32;
 
                 let stereo = if let Some(p1) = clean_lbl.find("<<") {
                     clean_lbl[p1..]
@@ -1112,8 +1111,8 @@ impl LayoutEngine {
                         methods: Vec::new(),
                         x: 0.0,
                         y: 0.0,
-                        width: 180.0,
-                        height: 52.0,
+                        width: 195.0,
+                        height: 54.0,
                         contract: None,
                     });
                 }
@@ -1129,8 +1128,8 @@ impl LayoutEngine {
                         methods: Vec::new(),
                         x: 0.0,
                         y: 0.0,
-                        width: 180.0,
-                        height: 52.0,
+                        width: 195.0,
+                        height: 54.0,
                         contract: None,
                     });
                 }
@@ -1157,28 +1156,50 @@ impl LayoutEngine {
 
         let is_horizontal = dir == LayoutDirection::LR || dir == LayoutDirection::RL;
 
-        // Assign ranks via longest path relaxation with cycle limit
-        let mut ranks: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-        for node in &nodes {
-            ranks.insert(node.id.clone(), 0);
+        // 1. Compute in-degrees of nodes to identify root nodes
+        let mut in_degrees: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for edge in &edges {
+            *in_degrees.entry(edge.to.clone()).or_insert(0) += 1;
         }
 
-        let max_iters = nodes.len();
-        for _ in 0..max_iters {
-            let mut changed = false;
+        let mut roots: Vec<String> = nodes
+            .iter()
+            .filter(|n| in_degrees.get(&n.id).copied().unwrap_or(0) == 0)
+            .map(|n| n.id.clone())
+            .collect();
+        if roots.is_empty() && !nodes.is_empty() {
+            roots.push(nodes[0].id.clone());
+        }
+
+        // 2. BFS shortest distance from roots to determine primary rank
+        let mut ranks: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut queue = std::collections::VecDeque::new();
+        for r in &roots {
+            ranks.insert(r.clone(), 0);
+            queue.push_back((r.clone(), 0));
+        }
+
+        while let Some((curr, r)) = queue.pop_front() {
             for edge in &edges {
-                if let Some(&r_from) = ranks.get(&edge.from) {
-                    if let Some(r_to) = ranks.get_mut(&edge.to) {
-                        if *r_to <= r_from {
-                            *r_to = r_from + 1;
-                            changed = true;
-                        }
+                if edge.from == curr {
+                    let next_r = r + 1;
+                    let should_update = match ranks.get(&edge.to) {
+                        None => true,
+                        Some(&old_r) => next_r < old_r,
+                    };
+                    if should_update {
+                        ranks.insert(edge.to.clone(), next_r);
+                        queue.push_back((edge.to.clone(), next_r));
                     }
                 }
             }
-            if !changed {
-                break;
-            }
+        }
+
+        // Fill any unvisited nodes
+        let max_r = ranks.values().copied().max().unwrap_or(0);
+        for node in &nodes {
+            ranks.entry(node.id.clone()).or_insert(max_r + 1);
         }
 
         let max_rank = ranks.values().copied().max().unwrap_or(0);
@@ -1188,28 +1209,41 @@ impl LayoutEngine {
             layers[r].push(idx);
         }
 
+        // 3. Intra-layer ordering: if an edge connects nodes in the same layer (e.g. WebFrontend -> ApiGateway),
+        // order source before target to ensure clean left-to-right flow.
+        for layer in &mut layers {
+            if layer.len() > 1 {
+                layer.sort_by(|&a_idx, &b_idx| {
+                    let a_id = &nodes[a_idx].id;
+                    let b_id = &nodes[b_idx].id;
+                    if edges.iter().any(|e| e.from == *a_id && e.to == *b_id) {
+                        std::cmp::Ordering::Less
+                    } else if edges.iter().any(|e| e.from == *b_id && e.to == *a_id) {
+                        std::cmp::Ordering::Greater
+                    } else {
+                        a_idx.cmp(&b_idx)
+                    }
+                });
+            }
+        }
+
         let margin_x = 80.0f32;
         let margin_y = 60.0f32;
-        let h_gap = 40.0f32;
-        let v_gap = 60.0f32;
+        let h_gap = 36.0f32;
+        let v_gap = 56.0f32;
 
         let total_width;
         let total_height;
 
         if !is_horizontal {
-            // TD Layout
-            let mut max_row_width = 0.0f32;
-            for layer in &layers {
-                if layer.is_empty() {
-                    continue;
-                }
-                let row_w: f32 = layer.iter().map(|&i| nodes[i].width).sum::<f32>()
-                    + (layer.len().saturating_sub(1) as f32 * h_gap);
-                max_row_width = max_row_width.max(row_w);
-            }
-            total_width = (max_row_width + 2.0 * margin_x).max(1000.0);
+            // TD Layout: Compute 3-column / widest-row alignment
+            let max_layer_count = layers.iter().map(|l| l.len()).max().unwrap_or(1);
+            let standard_card_w = 195.0f32;
+            let max_content_w = max_layer_count as f32 * standard_card_w
+                + (max_layer_count.saturating_sub(1) as f32 * h_gap);
+            total_width = (max_content_w + 2.0 * margin_x).max(960.0);
 
-            let mut cur_y = margin_y;
+            let mut cur_y = margin_y + 30.0;
             for layer in &layers {
                 if layer.is_empty() {
                     continue;
@@ -1230,7 +1264,7 @@ impl LayoutEngine {
                 }
                 cur_y += row_h + v_gap;
             }
-            total_height = (cur_y - v_gap + margin_y).max(700.0);
+            total_height = (cur_y - v_gap + margin_y + 40.0).max(680.0);
         } else {
             // LR Layout
             let mut max_col_height = 0.0f32;

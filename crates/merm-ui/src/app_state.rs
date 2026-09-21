@@ -116,17 +116,19 @@ impl AppState {
 
         let initial_source = if source.trim().is_empty() {
             r#"flowchart TD
-    User["User <<actor>>"] -->|HTTPS| WebFrontend["Web Frontend <<app>>"]
-    User -->|HTTPS| MobileApp["Mobile App <<app>>"]
-    WebFrontend -->|HTTPS/REST| ApiGateway["API Gateway <<service>>"]
-    MobileApp -->|HTTPS/REST| ApiGateway
-    ApiGateway -->|gRPC| AuthService["Auth Service <<service>>"]
-    ApiGateway -->|gRPC| UserService["User Service <<service>>"]
-    ApiGateway -->|Events| NotificationService["Notification Service <<service>>"]
-    AuthService -->|SQL| Postgres["PostgreSQL <<database>>"]
-    AuthService -->|Cache| Redis["Redis <<cache>>"]
-    UserService -->|SQL| Postgres
-    NotificationService -->|Publish| MessageQueue["Message Queue <<queue>>"]
+    User["User <<actor>>"] --> WebFrontend["Web Frontend <<app>>"]
+    User --> ApiGateway["API Gateway <<service>>"]
+    User --> MobileApp["Mobile App <<app>>"]
+    WebFrontend --> ApiGateway
+    MobileApp --> ApiGateway
+    ApiGateway --> AuthService["Auth Service <<service>>"]
+    ApiGateway --> UserService["User Service <<service>>"]
+    ApiGateway --> NotificationService["Notification Service <<service>>"]
+    AuthService --> Postgres["PostgreSQL <<database>>"]
+    AuthService --> Redis["Redis <<cache>>"]
+    UserService --> Postgres
+    UserService --> Redis
+    NotificationService --> MessageQueue["Message Queue <<queue>>"]
 "#
             .to_string()
         } else {
@@ -214,7 +216,7 @@ impl AuthService {
             layout_algorithm: LayoutAlgorithm::Hierarchical,
             active_tool: CanvasTool::Pointer,
             show_left_sidebar: true,
-            show_right_panel: true,
+            show_right_panel: false,
             active_workspace: "backend".to_string(),
             workspaces: vec![
                 "backend".to_string(),
@@ -428,25 +430,11 @@ impl AuthService {
                 self.transform
                     .fit_to_viewport(diagram.width, diagram.height, 1280.0, 720.0);
 
-                let auth_or_first = diagram
-                    .nodes
-                    .iter()
-                    .find(|n| n.clean_title().contains("Auth"))
-                    .or_else(|| diagram.nodes.first())
-                    .map(|n| (n.id.clone(), n.label.clone()));
-
                 self.current_diagram = Some(diagram);
-                if self.active_node_id.is_none() {
-                    if let Some((target_id, target_label)) = auth_or_first {
-                        self.select_node(Some(&target_id));
-                        self.status_message = format!("Selected: {}", target_label);
-                    }
-                } else {
-                    self.status_message = format!(
-                        "Loaded diagram (Backend: {:?})",
-                        self.render_engine.active_backend()
-                    );
-                }
+                self.status_message = format!(
+                    "Loaded diagram (Backend: {:?})",
+                    self.render_engine.active_backend()
+                );
             }
             Err(e) => {
                 self.status_message = format!("Error calculating layout: {}", e);
@@ -1973,9 +1961,14 @@ Keybindings (NORMAL mode):
     pub fn select_node(&mut self, node_id: Option<&str>) {
         if let Some(ref mut diag) = self.current_diagram {
             diag.selected_node_id = node_id.map(|s| s.to_string());
+            diag.regenerate_svg(&self.theme.palette());
         }
         self.active_node_id = node_id.map(|s| s.to_string());
         self.modal.active_test_node_id = node_id.map(|s| s.to_string());
+        if node_id.is_some() {
+            self.show_right_panel = true;
+            self.right_panel_tab = RightPanelTab::Contract;
+        }
     }
 
     pub fn undo(&mut self) {

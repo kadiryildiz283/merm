@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::process;
 use std::sync::mpsc::channel;
 
-use merm_core::{ProjectManifest, RustScanner, ThemeId};
+use merm_core::{ProjectManifest, ThemeId};
 use merm_ipc::IpcServer;
 use merm_ui::{AppState, MermAppWindow};
 
@@ -54,8 +54,8 @@ fn load_theme_from_config() -> Option<ThemeId> {
         if let Some(parent) = path.parent() {
             let _ = fs::create_dir_all(parent);
             let default_config = r#"# merm configuration file
-# Default theme: monokai, terminal, catppuccin-mocha, tokyo-night, nord, gruvbox, dracula, latte
-theme = "monokai"
+# Default theme: studio, catppuccin-mocha, tokyo-night, nord, gruvbox, dracula, monokai
+theme = "studio"
 
 # Default diagram layout direction (TD, LR, RL, BT)
 direction = "TD"
@@ -193,10 +193,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         i += 1;
     }
 
-    // Determine active theme (CLI override > Config file > Default Monokai)
+    // Determine active theme (CLI override > Config file > Default StudioDark)
     let active_theme = cli_theme
         .or_else(load_theme_from_config)
-        .unwrap_or(ThemeId::Monokai);
+        .unwrap_or(ThemeId::StudioDark);
 
     // Read diagram content
     let mut bound_dir: Option<String> = None;
@@ -207,25 +207,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let curr_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
                 if let Some(project_root) = ProjectManifest::detect_project_root(&curr_dir) {
                     bound_dir = Some(project_root.to_string_lossy().to_string());
-                    if let Ok(scan_report) = RustScanner::scan_project(&project_root) {
-                        if !scan_report.symbols.is_empty() {
-                            RustScanner::generate_mermaid_class_diagram(&scan_report)
-                        } else {
-                            format!(
-                                "classDiagram\n    direction TD\n    class {} {{\n        +run()\n    }}\n",
-                                project_root
-                                    .file_name()
-                                    .and_then(|s| s.to_str())
-                                    .unwrap_or("App")
-                            )
-                        }
+                    let arch_file = project_root.join("architecture.md");
+                    let diag_file = project_root.join("diagram.md");
+                    if arch_file.exists() {
+                        fs::read_to_string(&arch_file).unwrap_or_default()
+                    } else if diag_file.exists() {
+                        fs::read_to_string(&diag_file).unwrap_or_default()
                     } else {
-                        "classDiagram\n    direction TD\n    class App {\n        +run()\n    }\n"
-                            .to_string()
+                        String::new()
                     }
                 } else {
-                    "classDiagram\n    direction TD\n    class NewNode {\n        +run()\n    }\n"
-                        .to_string()
+                    String::new()
                 }
             } else {
                 let mut buffer = String::new();
@@ -238,47 +230,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if p.is_dir() {
                 if let Some(project_root) = ProjectManifest::detect_project_root(p) {
                     bound_dir = Some(project_root.to_string_lossy().to_string());
-                    if let Ok(scan_report) = RustScanner::scan_project(&project_root) {
-                        if !scan_report.symbols.is_empty() {
-                            RustScanner::generate_mermaid_class_diagram(&scan_report)
-                        } else {
-                            format!(
-                                "classDiagram\n    direction TD\n    class {} {{\n        +run()\n    }}\n",
-                                project_root
-                                    .file_name()
-                                    .and_then(|s| s.to_str())
-                                    .unwrap_or("App")
-                            )
-                        }
+                    let arch_file = project_root.join("architecture.md");
+                    let diag_file = project_root.join("diagram.md");
+                    if arch_file.exists() {
+                        fs::read_to_string(&arch_file).unwrap_or_default()
+                    } else if diag_file.exists() {
+                        fs::read_to_string(&diag_file).unwrap_or_default()
                     } else {
-                        "classDiagram\n    direction TD\n    class App {\n        +run()\n    }\n"
-                            .to_string()
+                        String::new()
                     }
                 } else {
-                    let name = p.file_name().and_then(|s| s.to_str()).unwrap_or("App");
-                    format!(
-                        "classDiagram\n    direction TD\n    class {} {{\n        +run()\n    }}\n",
-                        name
-                    )
+                    String::new()
                 }
             } else {
                 if let Some(project_root) = ProjectManifest::detect_project_root(p) {
                     bound_dir = Some(project_root.to_string_lossy().to_string());
                 }
-                let raw_content = fs::read_to_string(path)?;
-                if raw_content.trim().is_empty() {
-                    let default_name = p.file_stem().and_then(|s| s.to_str()).unwrap_or("NewNode");
-                    let clean_name = if default_name == "mermaid" {
-                        "App"
+                if p.exists() {
+                    let raw = fs::read_to_string(path).unwrap_or_default();
+                    if raw.trim().is_empty() {
+                        String::new()
                     } else {
-                        default_name
-                    };
-                    format!(
-                        "classDiagram\n    direction TD\n    class {} {{\n        +run()\n    }}\n",
-                        clean_name
-                    )
+                        raw
+                    }
                 } else {
-                    raw_content
+                    String::new()
                 }
             }
         }

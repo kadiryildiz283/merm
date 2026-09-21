@@ -21,12 +21,13 @@ impl StudioOverlay {
 
         let top_h = 36.0 * ui_scale;
         let bottom_status_h = 24.0 * ui_scale;
-        let sidebar_w = if app_state.show_left_sidebar {
+        let is_ast_view = app_state.active_sidebar_tab == SidebarTab::AstView;
+        let sidebar_w = if app_state.show_left_sidebar && !is_ast_view {
             210.0 * ui_scale
         } else {
             0.0
         };
-        let inspector_w = if app_state.show_right_panel {
+        let inspector_w = if app_state.show_right_panel && !is_ast_view {
             300.0 * ui_scale
         } else {
             0.0
@@ -39,12 +40,12 @@ impl StudioOverlay {
         ));
 
         // 1. Center Area: AST View & Split Code Editor (when AST View tab is active)
-        if app_state.active_sidebar_tab == SidebarTab::AstView {
+        if is_ast_view {
             Self::render_ast_split_view(
                 app_state,
-                sidebar_w,
+                0.0,
                 top_h,
-                w - sidebar_w - inspector_w,
+                w,
                 h - top_h - bottom_status_h,
                 ui_scale,
                 &palette,
@@ -65,7 +66,7 @@ impl StudioOverlay {
         }
 
         // 2. Left Navigation Sidebar
-        if app_state.show_left_sidebar {
+        if app_state.show_left_sidebar && !is_ast_view {
             Self::render_left_sidebar(
                 app_state,
                 top_h,
@@ -78,7 +79,7 @@ impl StudioOverlay {
         }
 
         // 3. Right Inspector / System Overview Drawer
-        if app_state.show_right_panel {
+        if app_state.show_right_panel && !is_ast_view {
             Self::render_right_inspector(
                 app_state,
                 w - inspector_w,
@@ -948,7 +949,7 @@ impl StudioOverlay {
                 let mw = (n.width * mini_scale).max(4.0);
                 let mh = (n.height * mini_scale).max(3.0);
                 let role = n.role();
-                let col = palette.role_color(&role);
+                let col = palette.node_role_color(&role, &n.clean_title());
 
                 svg.push_str(&format!(
                     r##"<rect x="{}" y="{}" width="{}" height="{}" rx="1" fill="{}" opacity="0.85"/>"##,

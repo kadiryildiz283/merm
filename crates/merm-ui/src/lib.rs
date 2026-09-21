@@ -6,7 +6,7 @@ pub mod watcher;
 pub mod window;
 pub mod worker;
 
-pub use app_state::AppState;
+pub use app_state::{AppState, CanvasTool, LayoutAlgorithm, RightPanelTab, SidebarTab};
 pub use clipboard::copy_to_clipboard;
 pub use modal::{ModalController, UiAction, UiMode};
 pub use studio::{StudioHitTester, StudioOverlay};

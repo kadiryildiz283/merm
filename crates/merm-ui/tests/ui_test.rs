@@ -358,3 +358,58 @@ fn test_node_navigation_and_e_keybindings() {
     app.execute_command_str(":edit");
     assert_eq!(app.modal.mode, merm_ui::UiMode::NodeEdit);
 }
+
+#[test]
+fn test_four_panel_visual_design_mockup() {
+    // Panel 1: Default boot canvas
+    let mut app = AppState::new(String::new(), false);
+    assert_eq!(app.active_sidebar_tab, merm_ui::SidebarTab::Diagrams);
+    assert!(app.show_left_sidebar);
+    assert!(!app.show_right_panel);
+    assert!(app.active_node_id.is_none());
+
+    let diag = app.current_diagram.as_ref().unwrap();
+    assert_eq!(diag.nodes.len(), 10);
+    assert!(diag.svg.contains("User"));
+    assert!(diag.svg.contains("API Gateway"));
+    assert!(diag.svg.contains("Auth Service"));
+    assert!(diag.svg.contains("PostgreSQL"));
+
+    let overlay_p1 = merm_ui::MermAppWindow::build_overlay_svg(&app, 1280, 720).unwrap();
+    assert!(overlay_p1.contains("backend / architecture"));
+    assert!(overlay_p1.contains("Workspaces"));
+
+    // Panel 2: Selected Node (Auth Service) & Inspector
+    app.select_node(Some("AuthService"));
+    assert!(app.show_right_panel);
+    assert_eq!(app.right_panel_tab, merm_ui::RightPanelTab::Contract);
+
+    let diag_p2 = app.current_diagram.as_ref().unwrap();
+    assert!(diag_p2.svg.contains("+   日   ❐   🗑"));
+
+    let overlay_p2 = merm_ui::MermAppWindow::build_overlay_svg(&app, 1280, 720).unwrap();
+    assert!(overlay_p2.contains("Input (Expected)"));
+    assert!(overlay_p2.contains("Runtime State"));
+    assert!(overlay_p2.contains("src/services/auth.rs:42"));
+
+    // Panel 3: Split Code Editor + AST View
+    app.active_sidebar_tab = merm_ui::SidebarTab::AstView;
+    let overlay_p3 = merm_ui::MermAppWindow::build_overlay_svg(&app, 1280, 720).unwrap();
+    assert!(overlay_p3.contains("backend / auth_service"));
+    assert!(overlay_p3.contains("src/services/auth.rs"));
+    assert!(overlay_p3.contains("AST View"));
+    assert!(overlay_p3.contains("AuthRequest (struct)"));
+    assert!(overlay_p3.contains("Symbol Info"));
+
+    // Panel 4: Command Palette & System Overview
+    app.active_sidebar_tab = merm_ui::SidebarTab::Diagrams;
+    app.select_node(None);
+    app.command_palette_visible = true;
+    app.show_right_panel = true;
+    let overlay_p4 = merm_ui::MermAppWindow::build_overlay_svg(&app, 1280, 720).unwrap();
+    assert!(overlay_p4.contains(":open"));
+    assert!(overlay_p4.contains(":build"));
+    assert!(overlay_p4.contains(":test"));
+    assert!(overlay_p4.contains("System Overview"));
+    assert!(overlay_p4.contains("Runtime Health"));
+}
