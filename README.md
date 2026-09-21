@@ -137,6 +137,42 @@ To view current settings at any time, run `:config` or click the `:cfg` pill!
 
 ---
 
+## 🧠 Fabric Pattern Integration & Divergence Auto-Healing (`&advice`, `&check`, `&ok`)
+
+`merm` integrates battle-tested **Fabric system patterns** and knowledge methodologies directly into the architectural co-pilot:
+
+1. **`improve_prompt`**: Clarifies the user's intent, formalizes domain boundaries, and specifies explicit inputs, outputs, and constraints.
+2. **`task_planner`**: Decomposes complex refactorings into verifiable micro-steps, checking Rust invariants (ownership, borrowing, lifetimes, `Result`/`Option` error propagation).
+3. **`create_design_document`**: Synthesizes C4 Context/Container models and compliant Mermaid class diagrams with verified stereotypes (`<<struct>>`, `<<enum>>`).
+4. **`.merm/system.md` Blueprint**: Automatically created in your project root upon initialization. You can inspect, modify, or add custom prompt rules, which `merm` uses immediately for all `&advice` and `&ai` queries.
+
+### 🛡️ Smart Project Binding & Divergence Self-Healing (`&check` ➔ `&ok`)
+- **Real Physical File Binding**: `&set` scans your directory and maps every diagram node to physical Rust source files, reporting live disk verification counts.
+- **Autonomous Divergence Healing**: When `&check` detects missing files or mismatched AST symbols between the Mermaid diagram and the codebase:
+  1. An actionable auto-healing proposal is formulated in real time.
+  2. Scaffolding code for missing modules is generated with test harness entrypoints (`pub fn run(input: &str) -> String`).
+  3. Simply press **`'o'`** or run **`&ok`**: `merm` creates an atomic rollback snapshot in `.merm/snapshots/`, writes the files, updates manifest bindings, and verifies with `cargo check`!
+
+### 👾 OpenAI Web GUI-Style Animated Pacman Spinner & Tool Call Timeline
+During background AI execution (`&check`, `&advice`, `&ok`, `&ai`):
+- **Pacman Spinner Animation**: The statusline and split buffer header display a retro cyber-Pacman animation (`ᗧ • • • • 👻` ➔ ` ᗤ • • • 👻` ➔ `     ᗤ💥`) at 60-120 FPS.
+- **OpenAI Web-Style Cards**: Live tool calls (`AST Scanner`, `Compiler Verification`, `Snapshot Engine`) and thoughts stream directly into the split buffer with high-contrast syntax highlighting:
+
+```text
+┌─ ⚙️  Tool Call: AST Scanner ───────────────────────────────
+│  Status: ⚡ In Progress...
+│  Detail: Scanning Rust symbols, structs, and modules...
+└─────────────────────────────────────────────────────────────
+┌─ 💭  Fabric Methodology: task_planner ──────────────────────
+│  Micro-Step 1: Scaffold missing OrderService module
+│  Micro-Step 2: Add executable run(input: &str) -> String entrypoint
+│  Micro-Step 3: Verify build with cargo check rollback gate
+└─────────────────────────────────────────────────────────────
+👉 Press 'o' or enter `&ok` to automatically scaffold code and heal divergence!
+```
+
+---
+
 ## 🚀 Executable Class Nodes (Input ➔ Run ➔ Output)
 
 When a Rust project is bound to `merm`:
