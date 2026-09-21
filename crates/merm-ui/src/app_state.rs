@@ -287,158 +287,171 @@ impl AuthService {
             Ok(mut diagram) => {
                 // Populate contracts with rich metadata matching studio design
                 for node in &mut diagram.nodes {
-                    let role = node.role();
                     let clean = node.clean_title();
-                    if node
+                    let is_generic_default = node
                         .contract
                         .as_ref()
-                        .map(|c| c.input_expected.is_none())
-                        .unwrap_or(true)
-                    {
-                        let mut c = merm_core::engine::NodeContractInfo::default();
-                        match role.as_str() {
-                            "actor" | "user" => {
-                                c.input_expected = Some("Credentials | JWT".to_string());
-                                c.output_expected = Some("SessionCookie".to_string());
-                                c.last_status = Some("🟢 Idle".to_string());
-                                c.health = "🟢 Healthy".to_string();
-                                c.source_location = Some("client/auth.ts:12".to_string());
-                            }
-                            "app" | "frontend" => {
-                                c.input_expected = Some("HTTP Request".to_string());
-                                c.output_expected = Some("HTML / JSON".to_string());
-                                c.last_status = Some("🟢 Idle".to_string());
-                                c.health = "🟢 Healthy".to_string();
-                                c.last_duration_ms = 2.4;
-                                c.exit_code = 0;
-                                c.source_location = Some("frontend/src/App.tsx:25".to_string());
-                            }
-                            "service" if clean.contains("Auth") => {
-                                c.input_expected = Some(
-                                    "{\n  \"user\": \"string\",\n  \"pass\": \"string\"\n}"
-                                        .to_string(),
-                                );
-                                c.input_example = Some(
-                                    "{\n  \"user\": \"admin\",\n  \"pass\": \"secret\"\n}"
-                                        .to_string(),
-                                );
-                                c.output_expected = Some(
-                                    "{\n  \"token\": \"string\",\n  \"expires_at\": \"u64\"\n}"
-                                        .to_string(),
-                                );
-                                c.output_default = Some("\"{}\"".to_string());
-                                c.last_status = Some("🟢 Idle".to_string());
-                                c.health = "🟢 Healthy".to_string();
-                                c.last_duration_ms = 1.2;
-                                c.exit_code = 0;
-                                c.source_location = Some("src/services/auth.rs:42".to_string());
-                            }
-                            "service" if clean.contains("User") => {
-                                c.input_expected = Some("{\n  \"user_id\": \"u64\"\n}".to_string());
-                                c.input_example = Some("{\n  \"user_id\": 1001\n}".to_string());
-                                c.output_expected = Some(
-                                    "{\n  \"username\": \"string\",\n  \"email\": \"string\"\n}"
-                                        .to_string(),
-                                );
-                                c.output_default = Some("\"{}\"".to_string());
-                                c.last_status = Some("🟢 Idle".to_string());
-                                c.health = "🟢 Healthy".to_string();
-                                c.last_duration_ms = 0.9;
-                                c.exit_code = 0;
-                                c.source_location = Some("src/services/user.rs:18".to_string());
-                            }
-                            "service" if clean.contains("Notification") => {
-                                c.input_expected = Some(
-                                    "{\n  \"recipient\": \"string\",\n  \"message\": \"string\"\n}"
-                                        .to_string(),
-                                );
-                                c.input_example = Some(
-                                    "{\n  \"recipient\": \"admin@example.com\",\n  \"message\": \"System alert\"\n}".to_string(),
-                                );
-                                c.output_expected = Some(
-                                    "{\n  \"status\": \"queued\",\n  \"id\": \"uuid\"\n}"
-                                        .to_string(),
-                                );
-                                c.output_default = Some("\"{}\"".to_string());
-                                c.last_status = Some("🟢 Idle".to_string());
-                                c.health = "🟢 Healthy".to_string();
-                                c.last_duration_ms = 1.5;
-                                c.exit_code = 0;
-                                c.source_location =
-                                    Some("src/services/notification.rs:32".to_string());
-                            }
-                            "service" => {
-                                c.input_expected = Some(
-                                    "{\n  \"path\": \"string\",\n  \"method\": \"string\"\n}"
-                                        .to_string(),
-                                );
-                                c.input_example = Some(
-                                    "{\n  \"path\": \"/api/v1/auth/login\",\n  \"method\": \"POST\"\n}".to_string(),
-                                );
-                                c.output_expected = Some(
-                                    "{\n  \"status\": 200,\n  \"body\": \"string\"\n}".to_string(),
-                                );
-                                c.output_default = Some("\"{}\"".to_string());
-                                c.last_status = Some("🟢 Idle".to_string());
-                                c.health = "🟢 Healthy".to_string();
-                                c.last_duration_ms = 0.8;
-                                c.exit_code = 0;
-                                c.source_location = Some("src/gateway.rs:18".to_string());
-                            }
-                            "database" | "db" => {
-                                c.input_expected = Some(
-                                    r#"{"query": "String", "params": "Vec<Value>"}"#.to_string(),
-                                );
-                                c.output_expected = Some(r#"{"rows_affected": "u64"}"#.to_string());
-                                c.output_default = Some(r#"{"rows_affected": 1}"#.to_string());
-                                c.last_status = Some("🟢 Idle".to_string());
-                                c.health = "🟢 Healthy".to_string();
-                                c.source_location = Some("src/db/postgres.rs:1".to_string());
-                            }
-                            "cache" => {
-                                c.input_expected =
-                                    Some(r#"{"key": "String", "ttl_secs": "u32"}"#.to_string());
-                                c.output_expected = Some(r#"{"cached": "bool"}"#.to_string());
-                                c.output_default = Some(r#"{"cached": true}"#.to_string());
-                                c.last_status = Some("🟢 Idle".to_string());
-                                c.health = "🟢 Healthy".to_string();
-                                c.source_location = Some("src/cache/redis.rs:1".to_string());
-                            }
-                            "queue" => {
-                                c.input_expected =
-                                    Some(r#"{"topic": "String", "payload": "Bytes"}"#.to_string());
-                                c.output_expected = Some(r#"{"offset": "u64"}"#.to_string());
-                                c.output_default = Some(r#"{"offset": 42}"#.to_string());
-                                c.last_status = Some("🟢 Idle".to_string());
-                                c.health = "🟢 Healthy".to_string();
-                                c.source_location = Some("src/mq/kafka.rs:1".to_string());
-                            }
-                            _ => {
-                                c.input_expected = Some("{}".to_string());
-                                c.output_expected = Some("1".to_string());
-                                c.last_status = Some("🟢 Idle".to_string());
-                                c.health = "🟢 Healthy".to_string();
-                                c.source_location =
-                                    Some(format!("src/{}.rs:1", node.id.to_lowercase()));
-                            }
-                        }
-                        node.contract = Some(c);
+                        .map(|c| {
+                            c.source_location.as_deref() == Some("src/services/auth.rs:42")
+                                && !clean.to_lowercase().contains("auth")
+                        })
+                        .unwrap_or(true);
+
+                    if is_generic_default || node.contract.is_none() {
+                        node.contract = Some(Self::synthesize_node_contract(node));
                     }
                 }
 
                 diagram.regenerate_svg(&self.theme.palette());
                 self.transform
                     .fit_to_viewport(diagram.width, diagram.height, 1280.0, 720.0);
-
                 self.current_diagram = Some(diagram);
-                self.status_message = format!(
-                    "Loaded diagram (Backend: {:?})",
-                    self.render_engine.active_backend()
-                );
+                self.status_message = "Diagram recalculated".to_string();
             }
             Err(e) => {
-                self.status_message = format!("Error calculating layout: {}", e);
+                self.status_message = format!("Render Error: {}", e);
             }
+        }
+    }
+
+    pub fn synthesize_node_contract(
+        node: &merm_core::engine::DiagramNode,
+    ) -> merm_core::engine::NodeContractInfo {
+        let clean = node.clean_title();
+        let clean_snake = clean.to_lowercase().replace([' ', '-'], "_");
+        let role = node.role();
+
+        // 1. Build input schema: if node has attributes, use them!
+        let (input_exp, input_ex) = if !node.attributes.is_empty() {
+            let mut fields = Vec::new();
+            let mut ex_fields = Vec::new();
+            for attr in &node.attributes {
+                let ty = attr
+                    .type_name
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("String");
+                fields.push(format!("  \"{}\": \"{}\"", attr.name, ty));
+                let ex_val = match ty {
+                    "u64" | "i64" | "u32" | "i32" | "usize" => "1001",
+                    "bool" => "true",
+                    "f64" | "f32" => "49.99",
+                    _ => "\"example\"",
+                };
+                ex_fields.push(format!("  \"{}\": {}", attr.name, ex_val));
+            }
+            (
+                format!("{{\n{}\n}}", fields.join(",\n")),
+                format!("{{\n{}\n}}", ex_fields.join(",\n")),
+            )
+        } else {
+            match role.as_str() {
+                "database" | "db" | "postgres" | "mysql" => (
+                    format!(
+                        "{{\n  \"query\": \"SELECT * FROM {}_records WHERE id = $1\",\n  \"params\": [1001]\n}}",
+                        clean_snake
+                    ),
+                    format!(
+                        "{{\n  \"query\": \"INSERT INTO {}(status) VALUES($1)\",\n  \"params\": [\"active\"]\n}}",
+                        clean_snake
+                    ),
+                ),
+                "cache" | "redis" | "memcached" => (
+                    format!(
+                        "{{\n  \"cmd\": \"GET\",\n  \"key\": \"{}:1001\",\n  \"ttl_secs\": 3600\n}}",
+                        clean_snake
+                    ),
+                    format!(
+                        "{{\n  \"cmd\": \"SET\",\n  \"key\": \"{}:1001\",\n  \"value\": \"{{ ... }}\"\n}}",
+                        clean_snake
+                    ),
+                ),
+                "queue" | "kafka" | "rabbitmq" | "broker" => (
+                    format!(
+                        "{{\n  \"topic\": \"events.{}\",\n  \"partition\": 0,\n  \"payload\": \"Bytes\"\n}}",
+                        clean_snake
+                    ),
+                    format!(
+                        "{{\n  \"topic\": \"events.{}\",\n  \"partition\": 0,\n  \"event_type\": \"created\"\n}}",
+                        clean_snake
+                    ),
+                ),
+                "actor" | "user" | "client" => (
+                    "{\n  \"auth\": \"Bearer <token>\",\n  \"device\": \"desktop_linux\",\n  \"action\": \"dispatch\"\n}".to_string(),
+                    "{\n  \"user_id\": 1001,\n  \"session\": \"active_session\"\n}".to_string(),
+                ),
+                "gateway" | "api" | "ingress" => (
+                    format!(
+                        "{{\n  \"path\": \"/api/v1/{}\",\n  \"method\": \"POST\",\n  \"headers\": {{\"content-type\": \"application/json\"}}\n}}",
+                        clean_snake
+                    ),
+                    format!(
+                        "{{\n  \"path\": \"/api/v1/{}\",\n  \"method\": \"POST\",\n  \"body\": \"{{}}\"\n}}",
+                        clean_snake
+                    ),
+                ),
+                _ => (
+                    format!(
+                        "{{\n  \"{}_id\": \"uuid\",\n  \"action\": \"process\",\n  \"timestamp\": 1726918800\n}}",
+                        clean_snake
+                    ),
+                    format!(
+                        "{{\n  \"{}_id\": \"550e8400-e29b-41d4-a716-446655440000\",\n  \"action\": \"sync\"\n}}",
+                        clean_snake
+                    ),
+                ),
+            }
+        };
+
+        // 2. Build output schema
+        let output_exp = match role.as_str() {
+            "database" | "db" | "postgres" | "mysql" => {
+                "{\n  \"rows_affected\": 1,\n  \"status\": \"committed\"\n}".to_string()
+            }
+            "cache" | "redis" | "memcached" => {
+                "{\n  \"hit\": true,\n  \"hit_rate\": 0.96,\n  \"cached\": true\n}".to_string()
+            }
+            "queue" | "kafka" | "rabbitmq" | "broker" => {
+                "{\n  \"offset\": 48120,\n  \"partition\": 0,\n  \"ack\": true\n}".to_string()
+            }
+            "actor" | "user" | "client" => {
+                "{\n  \"session_id\": \"sess_active\",\n  \"authorized\": true\n}".to_string()
+            }
+            "gateway" | "api" | "ingress" => {
+                "{\n  \"status\": 200,\n  \"latency_ms\": 1.1,\n  \"body\": \"ok\"\n}".to_string()
+            }
+            _ => format!(
+                "{{\n  \"status\": \"success\",\n  \"{}_result\": \"processed\",\n  \"exit_code\": 0\n}}",
+                clean_snake
+            ),
+        };
+
+        let source_location = if clean.to_lowercase().contains("auth") {
+            "src/services/auth.rs:42".to_string()
+        } else {
+            let source_dir = match role.as_str() {
+                "database" | "db" | "postgres" | "mysql" => "db",
+                "cache" | "redis" | "memcached" => "cache",
+                "queue" | "kafka" | "rabbitmq" | "broker" => "mq",
+                "actor" | "user" | "client" => "client",
+                "gateway" | "api" | "ingress" => "gateway",
+                _ => "services",
+            };
+            format!("src/{}/{}.rs:1", source_dir, clean_snake)
+        };
+
+        merm_core::engine::NodeContractInfo {
+            executable: true,
+            input_expected: Some(input_exp),
+            input_example: Some(input_ex),
+            input_default: Some("{}".to_string()),
+            output_expected: Some(output_exp),
+            output_default: Some("{\"status\": 200}".to_string()),
+            last_status: Some("🟢 Idle".to_string()),
+            health: "🟢 Healthy".to_string(),
+            last_duration_ms: 1.2,
+            exit_code: 0,
+            source_location: Some(source_location),
         }
     }
 
@@ -1921,7 +1934,15 @@ Keybindings (NORMAL mode):
             UiAction::ToggleFocus => {
                 self.toggle_focus_mode();
             }
-            UiAction::SetMode(_) | UiAction::None => {}
+            UiAction::SetMode(m) => {
+                if m == UiMode::Command {
+                    self.command_palette_visible = true;
+                    self.command_palette_selected_idx = 0;
+                } else if m == UiMode::Normal {
+                    self.command_palette_visible = false;
+                }
+            }
+            UiAction::None => {}
         }
     }
 
@@ -2315,6 +2336,7 @@ Keybindings (NORMAL mode):
     pub fn open_command_palette(&mut self) {
         self.command_palette_visible = true;
         self.command_palette_query.clear();
+        self.modal.command_buffer.clear();
         self.command_palette_selected_idx = 0;
         self.modal.mode = UiMode::Command;
         self.status_message = "Command Palette: Type a command or press Enter".to_string();
@@ -2322,6 +2344,9 @@ Keybindings (NORMAL mode):
 
     pub fn close_command_palette(&mut self) {
         self.command_palette_visible = false;
+        self.command_palette_query.clear();
+        self.modal.command_buffer.clear();
+        self.command_palette_selected_idx = 0;
         self.modal.mode = UiMode::Normal;
         self.status_message = "Ready".to_string();
     }

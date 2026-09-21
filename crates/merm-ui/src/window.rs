@@ -10,8 +10,9 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Window, WindowId};
 
-use crate::app_state::AppState;
+use crate::app_state::{AppState, SidebarTab};
 use crate::modal::{UiAction, UiMode};
+use crate::studio::StudioOverlay;
 use crate::watcher::{ProjectWatcher, WatcherEvent};
 use crate::worker::{AsyncWorker, WorkerResult};
 
@@ -89,6 +90,12 @@ impl MermAppWindow {
             current_surface_size: (0, 0),
             mouse_press_pos: None,
             mouse_press_hit_idx: None,
+        }
+    }
+
+    pub fn request_redraw(&self) {
+        if let Some(ref w) = self.window {
+            w.request_redraw();
         }
     }
 
@@ -181,27 +188,31 @@ impl MermAppWindow {
         }
 
         let render_start = Instant::now();
-        // Rasterize active diagram SVG using tiny-skia + resvg
-        if let Some(ref diagram) = self.app_state.current_diagram {
-            match self.rasterizer.rasterize(
-                &diagram.svg,
-                &self.app_state.transform,
-                width,
-                height,
-                &mut buffer,
-                Some(bg_color),
-            ) {
-                Ok(cached) => {
-                    if cached {
-                        self.app_state.telemetry.record_cache_hit();
-                    } else {
-                        self.app_state.telemetry.record_cache_miss();
+        // Rasterize active diagram SVG using tiny-skia + resvg (only when on Diagrams tab)
+        if self.app_state.active_sidebar_tab == SidebarTab::Diagrams {
+            if let Some(ref diagram) = self.app_state.current_diagram {
+                match self.rasterizer.rasterize(
+                    &diagram.svg,
+                    &self.app_state.transform,
+                    width,
+                    height,
+                    &mut buffer,
+                    Some(bg_color),
+                ) {
+                    Ok(cached) => {
+                        if cached {
+                            self.app_state.telemetry.record_cache_hit();
+                        } else {
+                            self.app_state.telemetry.record_cache_miss();
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Rasterization failed: {}", e);
+                        buffer.fill(bg_color);
                     }
                 }
-                Err(e) => {
-                    log::error!("Rasterization failed: {}", e);
-                    buffer.fill(bg_color);
-                }
+            } else {
+                buffer.fill(bg_color);
             }
         } else {
             buffer.fill(bg_color);
@@ -314,6 +325,131 @@ impl ApplicationHandler for MermAppWindow {
                     },
                 ..
             } => {
+                // A. Command Palette Key Interception
+                if self.app_state.command_palette_visible
+                    || self.app_state.modal.mode == UiMode::Command
+                {
+                    let filtered = StudioOverlay::filter_palette_items(&self.app_state);
+                    match logical_key {
+                        Key::Named(NamedKey::ArrowDown) => {
+                            if !filtered.is_empty() {
+                                self.app_state.command_palette_selected_idx =
+                                    (self.app_state.command_palette_selected_idx + 1)
+                                        % filtered.len();
+                            }
+                            self.request_redraw();
+                            return;
+                        }
+                        Key::Named(NamedKey::ArrowUp) => {
+                            if !filtered.is_empty() {
+                                if self.app_state.command_palette_selected_idx == 0 {
+                                    self.app_state.command_palette_selected_idx =
+                                        filtered.len() - 1;
+                                } else {
+                                    self.app_state.command_palette_selected_idx -= 1;
+                                }
+                            }
+                            self.request_redraw();
+                            return;
+                        }
+                        Key::Named(NamedKey::Enter) => {
+                            if !filtered.is_empty() {
+                                let idx = self
+                                    .app_state
+                                    .command_palette_selected_idx
+                                    .min(filtered.len() - 1);
+                                let action = filtered[idx].action.clone();
+                                self.app_state.close_command_palette();
+                                StudioOverlay::execute_palette_action(&mut self.app_state, action);
+                            } else {
+                                self.app_state.close_command_palette();
+                            }
+                            self.request_redraw();
+                            return;
+                        }
+                        Key::Named(NamedKey::Escape) => {
+                            self.app_state.close_command_palette();
+                            self.request_redraw();
+                            return;
+                        }
+                        Key::Named(NamedKey::Backspace) | Key::Named(NamedKey::Delete) => {
+                            self.app_state.modal.command_buffer.pop();
+                            self.app_state.command_palette_query =
+                                self.app_state.modal.command_buffer.clone();
+                            self.app_state.command_palette_selected_idx = 0;
+                            self.request_redraw();
+                            return;
+                        }
+                        Key::Named(NamedKey::Space) => {
+                            self.app_state.modal.command_buffer.push(' ');
+                            self.app_state.command_palette_query =
+                                self.app_state.modal.command_buffer.clone();
+                            self.app_state.command_palette_selected_idx = 0;
+                            self.request_redraw();
+                            return;
+                        }
+                        Key::Character(c) => {
+                            let mut changed = false;
+                            for ch in c.chars() {
+                                if !ch.is_control() {
+                                    self.app_state.modal.command_buffer.push(ch);
+                                    changed = true;
+                                }
+                            }
+                            if changed {
+                                self.app_state.command_palette_query =
+                                    self.app_state.modal.command_buffer.clone();
+                                self.app_state.command_palette_selected_idx = 0;
+                            }
+                            self.request_redraw();
+                            return;
+                        }
+                        _ => {
+                            return;
+                        }
+                    }
+                }
+
+                // B. Global Shortcuts (when Command Palette is closed)
+                if let Key::Character(ref c) = logical_key {
+                    if c == "\x0b" || c == "\x10" {
+                        // Ctrl+K or Ctrl+P: open command palette
+                        self.app_state.open_command_palette();
+                        self.request_redraw();
+                        return;
+                    }
+                    if self.app_state.modal.mode == UiMode::Normal {
+                        match c.as_str() {
+                            "1" => {
+                                self.app_state.set_sidebar_tab(SidebarTab::Diagrams);
+                                self.request_redraw();
+                                return;
+                            }
+                            "2" => {
+                                self.app_state.set_sidebar_tab(SidebarTab::Explorer);
+                                self.request_redraw();
+                                return;
+                            }
+                            "3" => {
+                                self.app_state.set_sidebar_tab(SidebarTab::AstView);
+                                self.request_redraw();
+                                return;
+                            }
+                            "4" => {
+                                self.app_state.set_sidebar_tab(SidebarTab::Executions);
+                                self.request_redraw();
+                                return;
+                            }
+                            "5" | "," => {
+                                self.app_state.set_sidebar_tab(SidebarTab::Settings);
+                                self.request_redraw();
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
                 let has_selected = self.app_state.active_node_id.is_some();
                 let action = match logical_key {
                     Key::Character(c) => {
@@ -489,7 +625,7 @@ impl ApplicationHandler for MermAppWindow {
                 let is_split_open =
                     self.app_state.show_split_buffer || self.app_state.modal.mode == UiMode::Report;
                 if is_split_open && cy >= (win_h as f64 - split_top_y) {
-                    let scroll_delta = match delta {
+                    let scroll_delta: i32 = match delta {
                         MouseScrollDelta::LineDelta(_, y) => {
                             if y > 0.0 {
                                 -3
