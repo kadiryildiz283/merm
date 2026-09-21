@@ -375,6 +375,15 @@ fn test_four_panel_visual_design_mockup() {
     assert!(diag.svg.contains("Auth Service"));
     assert!(diag.svg.contains("PostgreSQL"));
 
+    let rasterizer = merm_render::SvgRasterizer::new();
+    let mut buffer = vec![0u32; 1280 * 720];
+    let res1 = rasterizer.rasterize(&diag.svg, &app.transform, 1280, 720, &mut buffer, None);
+    assert!(
+        res1.is_ok(),
+        "Panel 1 diagram SVG must rasterize cleanly: {:?}",
+        res1.err()
+    );
+
     let overlay_p1 = merm_ui::MermAppWindow::build_overlay_svg(&app, 1280, 720).unwrap();
     assert!(overlay_p1.contains("backend / architecture"));
     assert!(overlay_p1.contains("Workspaces"));
@@ -386,6 +395,12 @@ fn test_four_panel_visual_design_mockup() {
 
     let diag_p2 = app.current_diagram.as_ref().unwrap();
     assert!(diag_p2.svg.contains("+   日   ❐   🗑"));
+    let res2 = rasterizer.rasterize(&diag_p2.svg, &app.transform, 1280, 720, &mut buffer, None);
+    assert!(
+        res2.is_ok(),
+        "Panel 2 diagram SVG with selected node must rasterize cleanly: {:?}",
+        res2.err()
+    );
 
     let overlay_p2 = merm_ui::MermAppWindow::build_overlay_svg(&app, 1280, 720).unwrap();
     assert!(overlay_p2.contains("Input (Expected)"));

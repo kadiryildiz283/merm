@@ -350,9 +350,25 @@ impl RenderedDiagram {
                         (stroke_color.as_str(), stroke_w, "")
                     };
 
+                let dash_part = if dash_style.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!("{} ", dash_style.trim())
+                };
+                let marker_part = if marker_attr.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!("{} ", marker_attr.trim())
+                };
+                let opacity_part = if opacity_attr.trim().is_empty() {
+                    String::new()
+                } else {
+                    format!("{} ", opacity_attr.trim())
+                };
+
                 svg.push_str(&format!(
                     r##"<path d="M {} {} C {} {}, {} {}, {} {}" fill="none" stroke="{}" stroke-width="{}" {}{}{}/>"##,
-                    sx, sy, c1x, c1y, c2x, c2y, ex, ey, actual_stroke, actual_w, dash_style, marker_attr, opacity_attr
+                    sx, sy, c1x, c1y, c2x, c2y, ex, ey, actual_stroke, actual_w, dash_part, marker_part, opacity_part
                 ));
 
                 if let Some(ref lbl) = edge.label {
