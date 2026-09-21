@@ -46,7 +46,13 @@ Most existing Mermaid diagram tools rely on heavy web stacks: WebKitGTK wrappers
 - 📁 **Standalone Diagram Mode & Clean Starter Templates:** Opening an empty file (`touch arch.md && merm arch.md`) loads an instant, clean starter template. Built-in filesystem boundary guards prevent accidental root scans of `$HOME` or non-project parent directories.
 - 🤖 **Google Antigravity CLI (`agy`) Native Binding (`&agy`):** Deep integration with Google Antigravity CLI. Runs non-interactive architectural queries, intent reconstruction, and code reasoning directly from the in-app command bar.
 - 🔑 **OpenAI & Custom LLM Endpoint Support (`:config`):** Native API key authentication for OpenAI (`gpt-4o`, `gpt-4o-mini`), custom OpenAI-compatible endpoints (vLLM, Ollama, OpenRouter), and interactive runtime configuration.
-- 🎮 **120 FPS Fluid Interactivity:** Smooth GPU-accelerated canvas panning, zooming, and **interactive node drag-and-drop** with dynamic relation arrow recalculation.
+- 🎮 **120 FPS Retained Dragging Layer:** Buttery smooth 120 FPS node movement. Node dragging bypasses heavy XML re-parsing during mouse motion and renders floating preview cards with dynamic elastic connector lines on a fast vector overlay, committing to SVG only upon mouse release.
+- ⚡ **Executable Architecture Nodes with Visible Contracts:** Every node displays an explicit visible **CONTRACT** compartment directly on the diagram canvas (`IN Expected / Default`, `OUT Expected / Default`, `STATE: IDLE / PASS / FAIL`).
+- 🔍 **Architecture Focus Mode (`F` / `:focus`):** Isolates the active node by dimming the entire canvas with a soft scrim, accentuating immediate dependencies and hiding visual noise.
+- 📊 **Real Performance Telemetry HUD (`:perf` / `:fps`):** Real-time on-canvas telemetry card showing measured FPS, frame time (ms), update time (ms), render time (ms), input latency (ms), culled/visible node counts, and raster cache hit rate (%).
+- ↩️ **Transactional Undo / Redo (`u` / `<C-r>` / `:undo` / `:redo`):** Full invertible mutation stack with reversible node moves and diagram transformations.
+- 🛡️ **Outbound AI Secret-Scrubbing Security Layer:** Automatically scans and redacts OpenAI keys (`sk-...`), GitHub personal access tokens (`ghp_...`), AWS credentials (`AKIA...`), Bearer tokens, private keys, and passwords before any prompt leaves your machine.
+- ⚡ **Incremental AST Single-File Watcher:** File watcher parses only the modified Rust source file (`scan_single_file`) instead of re-scanning the entire project tree, achieving near-zero latency live reloads.
 - 🔗 **Project-to-Diagram Binding (`&set`):** Binds your Mermaid diagram directly to a Rust project root (`<root>/.merm/manifest.json`). Every Rust file/module maps to an architecture class node!
 - ⚡ **Executable Diagram Nodes (`t` / `:test`):** Every node in the diagram is executable with **guaranteed default input (`"{}"`) and default output (`"1"` even if void `()`)**! Enter input into the node harness drawer or press `Enter`, and observe real-time output, exit codes, execution duration, and stdout/stderr.
 - ✏️ **Interactive In-App Node & Diagram Editor (`E` / Click):** Click any node or text in the diagram (or press `E` or `:edit <Node>`) to open the floating modal editor. Add fields, methods, or stereotypes, and save instantly with live SVG recalculation.
@@ -76,6 +82,10 @@ Open the command line anytime by pressing `:` or `&` in Normal mode:
 | `&ok` | AI / Mutation | Applies the pending recommendation from `&advice`. Creates an atomic rollback backup in `.merm/snapshots/`, applies mutations, and verifies build. |
 | `&set [PATH]` | Project | Binds the current Mermaid diagram to a target Rust project root (creates/loads `.merm/manifest.json` and maps symbols). |
 | `:test [Node] [Input]` | Execution | Executes node test harness with default input `"{}"` and default output `"1"`. (Shortcut: `t`). |
+| `:perf` / `:fps` | Telemetry | Toggles live on-canvas performance telemetry HUD card. |
+| `:focus` | View | Toggles focus mode scrim dimming on selected node. (Shortcut: `F`). |
+| `:u` / `:undo` | History | Undoes previous node move or diagram mutation. (Shortcut: `u`). |
+| `:redo` | History | Redoes previously undone mutation. (Shortcut: `Ctrl+R`). |
 | `:edit [Node]` | Editor | Opens interactive floating Node Editor to modify fields, methods, or stereotypes. (Shortcut: `E` or click node). |
 | `:copy` / `:yank` | Clipboard | Copies active split buffer content to system clipboard. (Shortcut: `y`, `Ctrl+C`, or `[📋 Kopyala]` button). |
 | `:split` | Buffer | Toggles persistent bottom split buffer open or closed (maximizing diagram). |
@@ -223,6 +233,9 @@ When a Rust project is bound to `merm`:
 | `:` or `&` | Normal | Open interactive command bar (`&agy`, `&check`, `&advice`, `&ok`, `&ai`, `:config`, etc.) |
 | `Tab` | Command Mode | Auto-complete or expand smart default prompts for `&advice`, `&ai`, `&agy`, `:test` |
 | `t` | Normal (Node selected) | Open Node Test drawer for selected class (default input: `{}`) |
+| `u` | Normal | Undo last node move or diagram mutation |
+| `Ctrl+R` | Normal | Redo last undone mutation |
+| `F` | Normal (Node selected) | Toggle Focus Mode (scrim dimming on non-selected nodes) |
 | `E` | Normal (Node selected) | Open interactive floating Node Editor to modify fields, methods, or stereotypes |
 | `i` or `K` | Normal (Node selected) | Open Node Inspector modal (type, file binding, fields, methods, relations, test status) |
 | `T` | Normal | Cycle color themes (Monokai → Terminal → Mocha → Tokyo Night → Nord → Gruvbox → Dracula → Latte) |
