@@ -69,6 +69,65 @@ Most existing Mermaid diagram tools rely on heavy web stacks: WebKitGTK wrappers
 
 ---
 
+## 🖥️ Modern 4-Panel Native Linux Architecture Studio
+
+`merm` features a native, GPU-accelerated 4-panel studio interface inspired by modern engineering tools (Linear, Apple developer tools, and Vim):
+
+```text
+┌─[🔴🟡🟢]─[⬡ merm]──[backend / architecture]──────────────────────────[🔍 100%]─[⛶]─[⚙]─[🎨]─┐
+│ 📁 Explorer   │                                          │ 📦 auth_service    <<service>> 🟢│
+│ 📊 Diagrams   │            ┌─────────────────┐           │──────────────────────────────────│
+│ 🌳 AST View   │            │  auth_service   │           │ Overview │ Contract │ Code │ Logs│
+│ ⚡ Executions │            │  <<service>>    │           │──────────────────────────────────│
+│ ⚙ Settings   │            └────────┬────────┘           │ [Input Expected] : JSON Schema   │
+│               │                     │                    │ [Output Expected]: JWT Token     │
+│ WORKSPACES  + │                     ▼                    │ [Runtime State]  : 🟢 Idle 1.2ms │
+│ • backend     │            ┌─────────────────┐           │                                  │
+│ • frontend    │            │  token_service  │           │ [Source: src/services/auth.rs]   │
+│ • infra       │            │  <<service>>    │           ├──────────────────────────────────┤
+│               │            └─────────────────┘           │ System Health: 10🟢 1🟡 1🔴      │
+│ [Rust v0.1.0] │ [ ↖ ✋ 🔍 ⛶ ⤢ ]               [ Minimap ]│ Layout: [Hierarchical] [Force]   │
+└───────────────┴──────────────────────────────────────────┴──────────────────────────────────┘
+```
+
+### 1. Studio Canvas View (Top-Left)
+- **Top Window Bar**: Native macOS dot controls (🔴 close, 🟡 toggle sidebar, 🟢 toggle inspector/fullscreen), brand logo (`⬡ merm`), workspace breadcrumb navigation, and interactive quick action pills (`[🔍 100%]`, `[⛶ Fit]`, `[⚙ Palette]`, `[🎨 Theme]`).
+- **Left Navigation Sidebar**: Quick-access tabs (`Explorer`, `Diagrams`, `AST View`, `Executions`, `Settings`), workspace switcher (`backend`, `frontend`, `infrastructure`), and engine status footer (`Rust v0.1.0` + `🟢 Ready`).
+- **Modern Architecture Service Cards**: Apple / Linear-style cards with left role icon boxes (`🔒 auth`, `💾 db`, `⚡ compute`, `🌐 gateway`, `📦 storage`), clean service titles, and `<<role>>` badges.
+- **Floating Canvas Toolbar**: Bottom-left toolbar pill `[ ↖ Pointer │ ✋ Pan │ 🔍 Zoom │ ⛶ Fit │ ⤢ Fullscreen ]`.
+- **Interactive Minimap**: Bottom-right floating canvas radar showing mini node layout and viewport rectangle with instant click-to-pan navigation.
+
+### 2. Node Inspector & Contract Drawer (Top-Right)
+- **Selected Node Golden Halo**: Selected node features a warm golden halo (`#f0883e`) and a floating quick-action pill directly beneath it:
+  - `+`: Connect dependency (`:connect <node> `)
+  - `日`: Open interactive Node Editor (`e` / `E`)
+  - `❐`: Duplicate/clone node
+  - `🗑`: Delete node
+- **Right Inspector Drawer (Mode A - Node Selected)**:
+  - Header: Role Icon, Service Title, `<<role>>` badge, and live `🟢 Healthy` indicator.
+  - Tab Bar: `Overview` │ `Contract` │ `Code` │ `Runtime` │ `Logs`.
+  - Contract Compartments: Expected/default inputs, expected/default outputs, and runtime state (`🟢 Idle`, `1.2 ms`, `Exit code 0`).
+  - Source Link Button: `Source: src/services/auth.rs:42 >` jumps directly to AST split view.
+- **System Overview (Mode B - No Node Selected)**:
+  - Graph Statistics: Node count, edge count, services count, databases count.
+  - Runtime Health: Live summary badges (`🟢 Healthy: 10`, `🟡 Warning: 1`, `🔴 Error: 1`).
+  - Zoom Level Slider: Visual track and draggable knob with real-time percentage readout.
+  - Layout Algorithm Toggles: Instant switching between `[Hierarchical]`, `[Force Directed]`, and `[Grid]` layouts.
+
+### 3. Split Code Editor & AST View (Bottom-Left)
+- **Dual-Pane Engineering View**: Toggle by clicking `AST View` in the left sidebar or the `Source >` button in the Contract drawer:
+  - **Left Pane (Source Code Editor)**: Editor tab `src/services/auth.rs ✕`, line numbers (1..30), and high-contrast syntax highlighting for Rust structs, functions, macros, and attributes.
+  - **Right Pane (Interactive AST View)**: Tree view powered by `syn` Rust AST (`📦 Crate: backend` ➔ `📂 modules` ➔ `📂 services` ➔ `📄 auth.rs` ➔ `🔷 struct AuthRequest` ➔ `⚡ fn verify_token` ➔ `🧪 test_token_valid`).
+  - **Symbol Info Card**: Shows symbol signature, type (`fn(&AuthRequest) -> AuthResponse`), visibility (`pub`), and line ranges.
+
+### 4. Floating Command Palette (Bottom-Right)
+- **Universal Palette Modal**: Press `:` in Normal mode or click `⌘O` / brand logo:
+  - Search input with blinking cursor (`🔍 :|`).
+  - Shortcut badges: `:open ⌘O`, `:build ⌘B`, `:test ⌘T`, `:run ⌘R`, `:theme ⌘T`, `:help ⌘?`.
+  - Arrow keys (`↑`/`↓`) or mouse clicks to execute commands instantly.
+
+---
+
 ## 🛠️ Interactive Command Protocol (`:` / `&` Prefix)
 
 Open the command line anytime by pressing `:` or `&` in Normal mode:

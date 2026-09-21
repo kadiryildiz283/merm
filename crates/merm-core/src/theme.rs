@@ -2,33 +2,36 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ThemeId {
+    #[default]
+    StudioDark,
+    Monokai,
+    MonokaiTerminal,
     CatppuccinMocha,
     TokyoNight,
     Nord,
     GruvboxDark,
     Dracula,
-    #[default]
-    Monokai,
-    MonokaiTerminal,
     CatppuccinLatte,
 }
 
 impl ThemeId {
     pub fn next(&self) -> Self {
         match self {
+            ThemeId::StudioDark => ThemeId::Monokai,
+            ThemeId::Monokai => ThemeId::MonokaiTerminal,
+            ThemeId::MonokaiTerminal => ThemeId::CatppuccinMocha,
             ThemeId::CatppuccinMocha => ThemeId::TokyoNight,
             ThemeId::TokyoNight => ThemeId::Nord,
             ThemeId::Nord => ThemeId::GruvboxDark,
             ThemeId::GruvboxDark => ThemeId::Dracula,
-            ThemeId::Dracula => ThemeId::Monokai,
-            ThemeId::Monokai => ThemeId::MonokaiTerminal,
-            ThemeId::MonokaiTerminal => ThemeId::CatppuccinLatte,
-            ThemeId::CatppuccinLatte => ThemeId::CatppuccinMocha,
+            ThemeId::Dracula => ThemeId::CatppuccinLatte,
+            ThemeId::CatppuccinLatte => ThemeId::StudioDark,
         }
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
         match name.to_lowercase().replace(['-', '_'], "").as_str() {
+            "studio" | "studiodark" | "linear" | "dark" | "merm" => Some(ThemeId::StudioDark),
             "catppuccin" | "catppuccinmocha" | "mocha" => Some(ThemeId::CatppuccinMocha),
             "tokyonight" | "tokyo" => Some(ThemeId::TokyoNight),
             "nord" => Some(ThemeId::Nord),
@@ -45,6 +48,29 @@ impl ThemeId {
 
     pub fn palette(&self) -> ColorPalette {
         match self {
+            ThemeId::StudioDark => ColorPalette {
+                name: "Merm Studio Dark".to_string(),
+                background: "#0e1117".to_string(),
+                card_bg: "#161b26".to_string(),
+                card_header: "#1f2430".to_string(),
+                border: "#283141".to_string(),
+                divider: "#262f3d".to_string(),
+                text_main: "#f0f6fc".to_string(),
+                text_sub: "#8b949e".to_string(),
+                text_muted: "#484f58".to_string(),
+                text_accent: "#f0883e".to_string(),
+                public_vis: "#3fb950".to_string(),
+                private_vis: "#f85149".to_string(),
+                protected_vis: "#d29922".to_string(),
+                package_vis: "#bc8cff".to_string(),
+                edge_stroke: "#388bfd".to_string(),
+                badge_bg: "#11151e".to_string(),
+                var_color: "#79c0ff".to_string(),
+                type_color: "#39c5cf".to_string(),
+                method_color: "#58a6ff".to_string(),
+                comment_color: "#8b949e".to_string(),
+                stereotype_color: "#bc8cff".to_string(),
+            },
             ThemeId::CatppuccinMocha => ColorPalette {
                 name: "Catppuccin Mocha".to_string(),
                 background: "#1e1e2e".to_string(),
@@ -324,5 +350,31 @@ impl ColorPalette {
 
     pub fn edge_divergent(&self) -> &str {
         &self.private_vis
+    }
+
+    pub fn role_color(&self, role: &str) -> &'static str {
+        match role.to_lowercase().trim_matches(['<', '>', ' ', '"', '\'']) {
+            "actor" | "user" => "#58a6ff",
+            "app" | "frontend" | "mobile" | "client" => "#bc8cff",
+            "service" | "backend" | "api" | "microservice" => "#3fb950",
+            "auth" | "security" => "#d29922",
+            "database" | "db" | "store" | "sql" | "postgres" | "postgresql" => "#39c5cf",
+            "cache" | "redis" | "memory" => "#ff7b72",
+            "queue" | "message" | "kafka" | "broker" | "mq" => "#79c0ff",
+            _ => "#58a6ff",
+        }
+    }
+
+    pub fn role_icon_symbol(&self, role: &str) -> &'static str {
+        match role.to_lowercase().trim_matches(['<', '>', ' ', '"', '\'']) {
+            "actor" | "user" => "👤",
+            "app" | "frontend" | "mobile" => "💻",
+            "service" | "backend" | "api" => "⚙",
+            "auth" | "security" => "🛡",
+            "database" | "db" | "postgres" | "postgresql" => "🗄",
+            "cache" | "redis" => "⚡",
+            "queue" | "message" | "mq" => "📨",
+            _ => "⬡",
+        }
     }
 }

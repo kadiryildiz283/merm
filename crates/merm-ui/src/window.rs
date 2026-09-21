@@ -2,7 +2,6 @@ use std::sync::mpsc::Receiver;
 use std::sync::Arc;
 use std::time::Instant;
 
-use merm_core::escape_xml;
 use merm_ipc::EditorCommand;
 use merm_render::SvgRasterizer;
 use winit::application::ApplicationHandler;
@@ -144,21 +143,39 @@ impl MermAppWindow {
         let update_ms = update_start.elapsed().as_secs_f32() * 1000.0;
 
         let bg_color = parse_hex_color(&self.app_state.theme.palette().background);
-        let hud_height = 32u32;
+
+        let ui_scale = if width >= 2500 || height >= 1500 {
+            1.85f32
+        } else if width >= 1800 || height >= 1000 {
+            1.35f32
+        } else {
+            1.0f32
+        };
+        let sidebar_w = if self.app_state.show_left_sidebar {
+            210.0 * ui_scale
+        } else {
+            0.0
+        };
+        let inspector_w = if self.app_state.show_right_panel {
+            300.0 * ui_scale
+        } else {
+            0.0
+        };
+        let top_h = 36.0 * ui_scale;
+        let bottom_status_h = 24.0 * ui_scale;
 
         if !self.initial_fit_done {
             if let Some(ref diagram) = self.app_state.current_diagram {
-                let avail_h = if self.app_state.show_split_buffer {
-                    (height as f32 * 0.50).max(100.0)
-                } else {
-                    (height.saturating_sub(hud_height)).max(1) as f32
-                };
+                let avail_w = (width as f32 - sidebar_w - inspector_w).max(200.0);
+                let avail_h = (height as f32 - top_h - bottom_status_h).max(200.0);
                 self.app_state.transform.fit_to_viewport(
                     diagram.width,
                     diagram.height,
-                    width as f32,
+                    avail_w,
                     avail_h,
                 );
+                self.app_state.transform.pan_x += sidebar_w;
+                self.app_state.transform.pan_y += top_h;
                 self.initial_fit_done = true;
             }
         }
@@ -190,7 +207,7 @@ impl MermAppWindow {
             buffer.fill(bg_color);
         }
 
-        // Render vector UI Overlay (HUD bar, Command input, NodeTest drawer, Report modal, Telemetry HUD)
+        // Render vector UI Overlay (Studio 4-panel system, HUD, drawers, modals)
         if let Some(overlay_svg) = Self::build_overlay_svg(&self.app_state, width, height) {
             if let Err(e) =
                 self.rasterizer
@@ -235,911 +252,9 @@ impl MermAppWindow {
     }
 
     pub fn build_overlay_svg(app_state: &AppState, width: u32, height: u32) -> Option<String> {
-        let palette = app_state.theme.palette();
-        let w = width as f32;
-        let h = height as f32;
-        let mut svg = String::with_capacity(8192);
-        svg.push_str(&format!(
-            r#"<svg width="{}" height="{}" viewBox="0 0 {} {}" xmlns="http://www.w3.org/2000/svg">"#,
-            width, height, width, height
-        ));
-
-        // Dynamic HiDPI scaling based on viewport size (e.g. 2.8K / 4K monitors)
-        let ui_scale = if w >= 2500.0 || h >= 1500.0 {
-            1.85f32
-        } else if w >= 1800.0 || h >= 1000.0 {
-            1.35f32
-        } else {
-            1.0f32
-        };
-
-        // 1. Top Header Bar (Scalable: 26px * ui_scale)
-        let top_h = 26.0 * ui_scale;
-        let top_font_size = (11.5 * ui_scale).round() as u32;
-        let top_text_y = top_h * 0.65;
-        svg.push_str(&format!(
-            r##"<rect x="0" y="0" width="{}" height="{}" fill="{}" opacity="0.96"/>"##,
-            w, top_h, palette.card_bg
-        ));
-        svg.push_str(&format!(
-            r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
-            top_h, w, top_h, palette.badge_bg
-        ));
-
-        // Project badge & bound classes
-        let project_badge = if let Some(ref m) = app_state.manifest {
-            format!(
-                "⚡ MERM │ 📁 {} ({} classes)",
-                m.project_name,
-                m.bindings.len()
-            )
-        } else {
-            "⚡ MERM │ [No project bound - run &set]".to_string()
-        };
-        svg.push_str(&format!(
-            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">{}</text>"##,
-            12.0 * ui_scale, top_text_y, palette.method_color, top_font_size, escape_xml(&project_badge)
-        ));
-
-        // Active node indicator in top bar
-        if let Some(ref sel_id) = app_state.active_node_id {
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">🎯 &lt;{}&gt; [t: Test │ i: Inspect │ e: Edit]</text>"##,
-                380.0 * ui_scale, top_text_y, palette.stereotype_color, top_font_size, escape_xml(sel_id)
-            ));
-        }
-
-        // Right side indicators (Direction, Theme, Help hint)
-        let dir_str = app_state.active_direction.as_str();
-        let theme_str = app_state.theme.palette().name;
-        let right_header = format!(
-            "Dir: [{}] ('p') │ Theme: [{}] ('T') │ :help",
-            dir_str, theme_str
-        );
-        svg.push_str(&format!(
-            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">{}</text>"##,
-            w - 12.0 * ui_scale, top_text_y, palette.text_sub, top_font_size, escape_xml(&right_header)
-        ));
-
-        // Visual selection outline directly on canvas around the active node
-        if let Some(ref sel_id) = app_state.active_node_id {
-            if let Some(ref diag) = app_state.current_diagram {
-                if let Some(node) = diag.nodes.iter().find(|n| &n.id == sel_id) {
-                    let (sx, sy) = app_state.transform.world_to_screen(node.x, node.y);
-                    let sw = node.width * app_state.transform.scale;
-                    let sh = node.height * app_state.transform.scale;
-                    let pad = 6.0 * app_state.transform.scale.clamp(0.6, 1.8);
-                    svg.push_str(&format!(
-                        r##"<rect x="{}" y="{}" width="{}" height="{}" rx="{}" fill="{}" fill-opacity="0.08" stroke="{}" stroke-width="{}" stroke-dasharray="6,3"/>"##,
-                        sx - pad,
-                        sy - pad,
-                        sw + pad * 2.0,
-                        sh + pad * 2.0,
-                        (6.0 * app_state.transform.scale).clamp(4.0, 12.0),
-                        palette.method_color,
-                        palette.method_color,
-                        (2.5 * ui_scale).max(2.0)
-                    ));
-                    let badge_font = (10.0 * ui_scale).round() as u32;
-                    svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">🎯 SELECTED</text>"##,
-                        sx - pad,
-                        (sy - pad - 4.0).max(top_h + 12.0),
-                        palette.stereotype_color,
-                        badge_font
-                    ));
-                }
-            }
-        }
-
-        // Focus Mode dimming scrim and indicator
-        if app_state.focus_mode_active {
-            if let Some(ref sel_id) = app_state.active_node_id {
-                svg.push_str(&format!(
-                    r##"<rect x="0" y="{}" width="{}" height="{}" fill="#000000" fill-opacity="0.45"/>"##,
-                    top_h, w, (h - top_h - (24.0 + 28.0) * ui_scale).max(0.0)
-                ));
-                let focus_font = (11.0 * ui_scale).round() as u32;
-                svg.push_str(&format!(
-                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1"/>"##,
-                    16.0 * ui_scale, top_h + 12.0 * ui_scale, 280.0 * ui_scale, 24.0 * ui_scale,
-                    palette.card_bg, palette.method_color
-                ));
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">🔍 FOCUS MODE: &lt;{}&gt; (Press 'F' to exit)</text>"##,
-                    24.0 * ui_scale, top_h + 28.0 * ui_scale, palette.method_color, focus_font, escape_xml(sel_id)
-                ));
-            }
-        }
-
-        // Dynamic 120 FPS Drag Preview Overlay
-        if let Some((drag_idx, drag_x, drag_y)) = app_state.active_drag_preview {
-            if let Some(ref diag) = app_state.current_diagram {
-                if let Some(node) = diag.nodes.get(drag_idx) {
-                    let (drag_sx, drag_sy) = app_state.transform.world_to_screen(drag_x, drag_y);
-                    let sw = node.width * app_state.transform.scale;
-                    let sh = node.height * app_state.transform.scale;
-
-                    // Dynamic tether lines to connected edges
-                    for edge in &diag.edges {
-                        let is_source = edge.from == node.id;
-                        let is_target = edge.to == node.id;
-                        if is_source || is_target {
-                            let other_id = if is_source { &edge.to } else { &edge.from };
-                            if let Some(other_node) = diag.nodes.iter().find(|n| &n.id == other_id)
-                            {
-                                let (other_sx, other_sy) = app_state.transform.world_to_screen(
-                                    other_node.x + other_node.width / 2.0,
-                                    other_node.y + other_node.height / 2.0,
-                                );
-                                let drag_center_x = drag_sx + sw / 2.0;
-                                let drag_center_y = drag_sy + sh / 2.0;
-
-                                svg.push_str(&format!(
-                                    r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="{}" stroke-dasharray="6,4" opacity="0.9"/>"##,
-                                    drag_center_x, drag_center_y, other_sx, other_sy,
-                                    palette.method_color, (2.0 * ui_scale).max(1.5)
-                                ));
-                            }
-                        }
-                    }
-
-                    // Ghost box at original position
-                    let (orig_sx, orig_sy) = app_state.transform.world_to_screen(node.x, node.y);
-                    svg.push_str(&format!(
-                        r##"<rect x="{}" y="{}" width="{}" height="{}" rx="{}" fill="none" stroke="{}" stroke-width="1.5" stroke-dasharray="4,4" opacity="0.4"/>"##,
-                        orig_sx, orig_sy, sw, sh,
-                        (6.0 * app_state.transform.scale).clamp(4.0, 12.0),
-                        palette.badge_bg
-                    ));
-
-                    // Floating moving node card preview
-                    svg.push_str(&format!(
-                        r##"<rect x="{}" y="{}" width="{}" height="{}" rx="{}" fill="{}" fill-opacity="0.95" stroke="{}" stroke-width="{}"/>"##,
-                        drag_sx, drag_sy, sw, sh,
-                        (6.0 * app_state.transform.scale).clamp(4.0, 12.0),
-                        palette.card_bg, palette.method_color, (2.5 * ui_scale).max(2.0)
-                    ));
-
-                    // Title of dragged node
-                    let title_font = (12.0 * app_state.transform.scale).clamp(8.0, 20.0);
-                    svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">⚡ {}</text>"##,
-                        drag_sx + 10.0 * app_state.transform.scale,
-                        drag_sy + 20.0 * app_state.transform.scale,
-                        palette.method_color, title_font, escape_xml(&node.id)
-                    ));
-                }
-            }
-        }
-
-        // Performance Telemetry HUD Card (:perf, :fps)
-        if app_state.telemetry.enabled {
-            let card_w = 260.0 * ui_scale;
-            let card_h = 138.0 * ui_scale;
-            let card_x = w - card_w - 14.0 * ui_scale;
-            let card_y = top_h + 10.0 * ui_scale;
-
-            svg.push_str(&format!(
-                r##"<rect x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}" fill-opacity="0.95" stroke="{}" stroke-width="1.5"/>"##,
-                card_x, card_y, card_w, card_h, palette.card_bg, palette.method_color
-            ));
-
-            let telem_title_y = card_y + 18.0 * ui_scale;
-            let telem_font = (10.5 * ui_scale).round() as u32;
-            let line_gap = 18.0 * ui_scale;
-
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">⚡ PERFORMANCE TELEMETRY</text>"##,
-                card_x + 12.0 * ui_scale, telem_title_y, palette.method_color, telem_font
-            ));
-
-            let fps_color = if app_state.telemetry.fps >= 100.0 {
-                "#a6e3a1"
-            } else if app_state.telemetry.fps >= 60.0 {
-                "#f9e2af"
-            } else {
-                "#f38ba8"
-            };
-
-            let row1 = format!(
-                "FPS: {:>5.1} │ Frame: {:>4.1}ms",
-                app_state.telemetry.fps, app_state.telemetry.frame_time_ms
-            );
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
-                card_x + 12.0 * ui_scale, telem_title_y + line_gap, fps_color, telem_font, escape_xml(&row1)
-            ));
-
-            let row2 = format!(
-                "Update: {:>4.1}ms │ Render: {:>4.1}ms",
-                app_state.telemetry.update_time_ms, app_state.telemetry.render_time_ms
-            );
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
-                card_x + 12.0 * ui_scale, telem_title_y + line_gap * 2.0, palette.text_main, telem_font, escape_xml(&row2)
-            ));
-
-            let row3 = format!(
-                "Input Latency: {:>4.1}ms",
-                app_state.telemetry.input_latency_ms
-            );
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
-                card_x + 12.0 * ui_scale, telem_title_y + line_gap * 3.0, palette.text_sub, telem_font, escape_xml(&row3)
-            ));
-
-            let row4 = format!(
-                "Nodes: {}/{} │ Cache: {:>4.1}%",
-                app_state.telemetry.visible_nodes,
-                app_state.telemetry.total_nodes,
-                app_state.telemetry.cache_hit_rate
-            );
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
-                card_x + 12.0 * ui_scale, telem_title_y + line_gap * 4.0, palette.stereotype_color, telem_font, escape_xml(&row4)
-            ));
-
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">(:perf)</text>"##,
-                card_x + card_w - 10.0 * ui_scale, telem_title_y + line_gap * 5.0 + 4.0 * ui_scale, palette.badge_bg, (9.0 * ui_scale).round() as u32
-            ));
-        }
-
-        // 2. Full-screen / Drawer Modals: NodeTest & Inspector
-        match app_state.modal.mode {
-            UiMode::NodeTest => {
-                let drawer_h = 145.0 * ui_scale;
-                let drawer_y = h - drawer_h;
-                let active_node = app_state
-                    .modal
-                    .active_test_node_id
-                    .as_deref()
-                    .unwrap_or("Unknown");
-
-                svg.push_str(&format!(
-                    r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}" opacity="0.97"/>"##,
-                    drawer_y, w, drawer_h, palette.card_bg
-                ));
-                svg.push_str(&format!(
-                    r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="2"/>"##,
-                    drawer_y, w, drawer_y, palette.method_color
-                ));
-
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">🚀 Executable Node Test Harness: &lt;{}&gt;</text>"##,
-                    16.0 * ui_scale, drawer_y + 26.0 * ui_scale, palette.method_color, (13.0 * ui_scale).round() as u32, escape_xml(active_node)
-                ));
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">[Enter] Run Harness │ [Esc] Close</text>"##,
-                    w - 16.0 * ui_scale, drawer_y + 26.0 * ui_scale, palette.text_sub, (11.0 * ui_scale).round() as u32
-                ));
-
-                // Input box
-                let input_disp = format!(
-                    "Payload Input: {}█",
-                    escape_xml(&app_state.modal.test_input_buffer)
-                );
-                let input_h = 32.0 * ui_scale;
-                svg.push_str(&format!(
-                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1"/>"##,
-                    14.0 * ui_scale, drawer_y + 40.0 * ui_scale, w - 28.0 * ui_scale, input_h, palette.background, palette.method_color
-                ));
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
-                    24.0 * ui_scale, drawer_y + 61.0 * ui_scale, palette.text_main, (12.5 * ui_scale).round() as u32, input_disp
-                ));
-
-                // Status or output preview
-                let status_preview = if let Some(ref res) = app_state.last_execution_result {
-                    let st = if res.success { "✔ PASS" } else { "✖ FAIL" };
-                    format!(
-                        "Execution Result: [{}] ({}ms) -> {}",
-                        st,
-                        res.duration_ms,
-                        escape_xml(&res.output_payload)
-                    )
-                } else {
-                    "Type JSON or string argument for node entrypoint. Press [Enter] to run."
-                        .to_string()
-                };
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
-                    16.0 * ui_scale, drawer_y + 98.0 * ui_scale, palette.text_sub, (11.5 * ui_scale).round() as u32, status_preview
-                ));
-
-                svg.push_str("</svg>");
-                return Some(svg);
-            }
-            UiMode::NodeEdit => {
-                let modal_w = (w - 140.0 * ui_scale).clamp(520.0 * ui_scale, 860.0 * ui_scale);
-                let modal_h = (h - 100.0 * ui_scale).clamp(380.0 * ui_scale, 620.0 * ui_scale);
-                let modal_x = (w - modal_w) / 2.0;
-                let modal_y = (h - modal_h) / 2.0;
-
-                // Dimmed Backdrop
-                svg.push_str(&format!(
-                    r##"<rect x="0" y="0" width="{}" height="{}" fill="#000000" opacity="0.70"/>"##,
-                    w, h
-                ));
-
-                // Modal Card
-                svg.push_str(&format!(
-                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}" stroke="{}" stroke-width="2"/>"##,
-                    modal_x, modal_y, modal_w, modal_h, palette.background, palette.method_color
-                ));
-
-                // Modal Header
-                let header_h = 38.0 * ui_scale;
-                svg.push_str(&format!(
-                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}"/>"##,
-                    modal_x, modal_y, modal_w, header_h, palette.badge_bg
-                ));
-                svg.push_str(&format!(
-                    r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="2"/>"##,
-                    modal_x,
-                    modal_y + header_h,
-                    modal_x + modal_w,
-                    modal_y + header_h,
-                    palette.method_color
-                ));
-
-                let edit_id = &app_state.modal.edit_node_id;
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">✏️ Node Editor: &lt;{}&gt;</text>"##,
-                    modal_x + 16.0 * ui_scale, modal_y + 25.0 * ui_scale, palette.method_color, (14.0 * ui_scale).round() as u32, escape_xml(edit_id)
-                ));
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">[Enter] Add/Save │ [Esc] Cancel</text>"##,
-                    modal_x + modal_w - 16.0 * ui_scale, modal_y + 25.0 * ui_scale, palette.text_sub, (11.0 * ui_scale).round() as u32
-                ));
-
-                let mut cur_y = modal_y + header_h + 24.0 * ui_scale;
-
-                // Stereotype indicator
-                let st_display = if !app_state.modal.edit_stereotype.is_empty() {
-                    format!(
-                        "&lt;&lt;{}&gt;&gt;",
-                        escape_xml(&app_state.modal.edit_stereotype)
-                    )
-                } else {
-                    "&lt;&lt;class&gt;&gt; (default)".to_string()
-                };
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">Stereotype: {}</text>"##,
-                    modal_x + 20.0 * ui_scale, cur_y, palette.stereotype_color, (12.0 * ui_scale).round() as u32, st_display
-                ));
-                cur_y += 24.0 * ui_scale;
-
-                // Members List
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">Members ({}):</text>"##,
-                    modal_x + 20.0 * ui_scale, cur_y, palette.text_main, (12.0 * ui_scale).round() as u32, app_state.modal.edit_members.len()
-                ));
-                cur_y += 18.0 * ui_scale;
-
-                let member_line_h = 20.0 * ui_scale;
-                let max_disp_members = 8;
-                for (i, m) in app_state
-                    .modal
-                    .edit_members
-                    .iter()
-                    .enumerate()
-                    .take(max_disp_members)
-                {
-                    let col = if m.starts_with('+') {
-                        &palette.method_color
-                    } else if m.starts_with('-') {
-                        &palette.var_color
-                    } else {
-                        &palette.text_sub
-                    };
-                    svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">  {:2}. {}</text>"##,
-                        modal_x + 24.0 * ui_scale, cur_y, col, (12.0 * ui_scale).round() as u32, i + 1, escape_xml(m)
-                    ));
-                    cur_y += member_line_h;
-                }
-                if app_state.modal.edit_members.len() > max_disp_members {
-                    svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">  ... and {} more</text>"##,
-                        modal_x + 24.0 * ui_scale, cur_y, palette.text_sub, (11.0 * ui_scale).round() as u32, app_state.modal.edit_members.len() - max_disp_members
-                    ));
-                    cur_y += member_line_h;
-                }
-
-                // New member input box
-                cur_y += 12.0 * ui_scale;
-                let input_h = 32.0 * ui_scale;
-                svg.push_str(&format!(
-                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1.5"/>"##,
-                    modal_x + 20.0 * ui_scale, cur_y, modal_w - 40.0 * ui_scale, input_h, palette.card_bg, palette.method_color
-                ));
-                let input_str = if app_state.modal.edit_input_buffer.is_empty() {
-                    "Type member (e.g. +name: String or +execute()) and press Enter. Enter on empty line saves.█".to_string()
-                } else {
-                    format!("{}█", escape_xml(&app_state.modal.edit_input_buffer))
-                };
-                let input_col = if app_state.modal.edit_input_buffer.is_empty() {
-                    &palette.text_sub
-                } else {
-                    &palette.text_main
-                };
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
-                    modal_x + 30.0 * ui_scale, cur_y + 21.0 * ui_scale, input_col, (12.0 * ui_scale).round() as u32, input_str
-                ));
-
-                // Footer tips
-                cur_y += input_h + 20.0 * ui_scale;
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">Tip: Use +/- prefix for public/private fields or methods. Press Esc to discard.</text>"##,
-                    modal_x + 20.0 * ui_scale, cur_y, palette.text_sub, (10.5 * ui_scale).round() as u32
-                ));
-
-                svg.push_str("</svg>");
-                return Some(svg);
-            }
-            UiMode::Inspector => {
-                let modal_w = (w - 160.0 * ui_scale).max(520.0 * ui_scale);
-                let modal_h = (h - 120.0 * ui_scale).max(360.0 * ui_scale);
-                let modal_x = (w - modal_w) / 2.0;
-                let modal_y = (h - modal_h) / 2.0;
-
-                svg.push_str(&format!(
-                    r##"<rect x="0" y="0" width="{}" height="{}" fill="#000000" opacity="0.65"/>"##,
-                    w, h
-                ));
-
-                svg.push_str(&format!(
-                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}" stroke="{}" stroke-width="2"/>"##,
-                    modal_x, modal_y, modal_w, modal_h, palette.background, palette.badge_bg
-                ));
-
-                let header_bar_h = 36.0 * ui_scale;
-                svg.push_str(&format!(
-                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}"/>"##,
-                    modal_x, modal_y, modal_w, header_bar_h, palette.badge_bg
-                ));
-
-                let active_id = app_state.active_node_id.as_deref().unwrap_or("Unknown");
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">🔍 Node Inspector: &lt;{}&gt;</text>"##,
-                    modal_x + 16.0 * ui_scale, modal_y + 24.0 * ui_scale, palette.text_main, (13.0 * ui_scale).round() as u32, escape_xml(active_id)
-                ));
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">[e] Edit in $EDITOR │ [t] Test │ [Esc/q] Close</text>"##,
-                    modal_x + modal_w - 16.0 * ui_scale, modal_y + 24.0 * ui_scale, palette.text_sub, (11.0 * ui_scale).round() as u32
-                ));
-
-                let node_data = app_state
-                    .current_diagram
-                    .as_ref()
-                    .and_then(|d| d.nodes.iter().find(|n| n.id == active_id));
-
-                let binding = app_state
-                    .manifest
-                    .as_ref()
-                    .and_then(|m| m.get_binding(active_id));
-
-                let mut cur_y = modal_y + 60.0 * ui_scale;
-                let role = node_data
-                    .and_then(|n| n.stereotype.as_deref())
-                    .unwrap_or("struct");
-                let bound_file = binding.map(|b| b.file.as_str()).unwrap_or("src/lib.rs");
-                let entrypoint = binding
-                    .and_then(|b| b.entrypoint.as_deref())
-                    .unwrap_or("run");
-                let is_exec = binding.map(|b| b.executable).unwrap_or(true);
-
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">Kind: &lt;&lt;{}&gt;&gt; │ File: {} │ Executable: {} │ Entrypoint: {}()</text>"##,
-                    modal_x + 16.0 * ui_scale, cur_y, palette.stereotype_color, (12.0 * ui_scale).round() as u32, escape_xml(role), escape_xml(bound_file), if is_exec { "YES" } else { "NO" }, escape_xml(entrypoint)
-                ));
-                cur_y += 24.0 * ui_scale;
-
-                if let Some(doc) = node_data.and_then(|n| n.doc_comment.as_deref()) {
-                    svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-style="italic">%% {}</text>"##,
-                        modal_x + 16.0 * ui_scale, cur_y, palette.comment_color, (11.0 * ui_scale).round() as u32, escape_xml(doc)
-                    ));
-                    cur_y += 20.0 * ui_scale;
-                }
-
-                if let Some(node) = node_data {
-                    if !node.attributes.is_empty() {
-                        svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">Fields ({}):</text>"##,
-                            modal_x + 16.0 * ui_scale, cur_y, palette.var_color, (11.5 * ui_scale).round() as u32, node.attributes.len()
-                        ));
-                        cur_y += 18.0 * ui_scale;
-                        for attr in node.attributes.iter().take(4) {
-                            let type_str = attr.type_name.as_deref().unwrap_or("String");
-                            svg.push_str(&format!(
-                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">   {}{}: {}</text>"##,
-                                modal_x + 20.0 * ui_scale, cur_y, palette.text_main, (11.0 * ui_scale).round() as u32, attr.visibility, escape_xml(&attr.name), escape_xml(type_str)
-                            ));
-                            cur_y += 17.0 * ui_scale;
-                        }
-                    }
-
-                    if !node.methods.is_empty() {
-                        svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">Methods ({}):</text>"##,
-                            modal_x + 16.0 * ui_scale, cur_y, palette.method_color, (11.5 * ui_scale).round() as u32, node.methods.len()
-                        ));
-                        cur_y += 18.0 * ui_scale;
-                        for meth in node.methods.iter().take(4) {
-                            let ret_str = meth
-                                .type_name
-                                .as_ref()
-                                .map(|r| format!(" -> {}", r))
-                                .unwrap_or_default();
-                            svg.push_str(&format!(
-                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">   {}{}{}</text>"##,
-                                modal_x + 20.0 * ui_scale, cur_y, palette.text_main, (11.0 * ui_scale).round() as u32, meth.visibility, escape_xml(&meth.name), escape_xml(&ret_str)
-                            ));
-                            cur_y += 17.0 * ui_scale;
-                        }
-                    }
-                }
-
-                svg.push_str("</svg>");
-                return Some(svg);
-            }
-            _ => {}
-        }
-
-        let status_h = 24.0 * ui_scale;
-        let cmd_h = 28.0 * ui_scale;
-        let bottom_bars_h = status_h + cmd_h;
-
-        // 3. Persistent Vim Horizontal Split Buffer (when show_split_buffer is true or mode is Report)
-        let is_split_open = app_state.show_split_buffer || app_state.modal.mode == UiMode::Report;
-        if is_split_open {
-            let split_h = (h * 0.48).clamp(240.0 * ui_scale, (h - bottom_bars_h - 40.0).max(120.0));
-            let split_y = h - split_h;
-
-            // Split Buffer Background
-            svg.push_str(&format!(
-                r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}" opacity="0.98"/>"##,
-                split_y,
-                w,
-                split_h - bottom_bars_h,
-                palette.card_bg
-            ));
-
-            // Split Header Line (Top Border)
-            let split_header_h = 26.0 * ui_scale;
-            let split_header_font = (12.0 * ui_scale).round() as u32;
-            let split_header_y = split_y + split_header_h * 0.65;
-            svg.push_str(&format!(
-                r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}"/>"##,
-                split_y, w, split_header_h, palette.badge_bg
-            ));
-            svg.push_str(&format!(
-                r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="2"/>"##,
-                split_y, w, split_y, palette.method_color
-            ));
-
-            let pacman_frame = ((std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis()
-                / 130)
-                % 6) as usize;
-
-            let pacman_art = match pacman_frame {
-                0 => "ᗧ • • • • 👻",
-                1 => " ᗤ • • • 👻",
-                2 => "  ᗧ • • 👻",
-                3 => "   ᗤ • 👻",
-                4 => "    ᗧ 👻",
-                _ => "     ᗤ💥",
-            };
-
-            let is_focused = app_state.modal.mode == UiMode::Report;
-            let focus_str = if app_state.is_busy {
-                format!(
-                    "🤖 AI Agent Working [ {} ] ⚙️ {}",
-                    pacman_art, app_state.busy_message
-                )
-            } else if is_focused {
-                "🤖 AI Architecture & Diagnostic Buffer [🎯 ODAKTA]".to_string()
-            } else {
-                "🤖 AI Architecture & Diagnostic Buffer [KANVAS ODAKTA]".to_string()
-            };
-
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">── [ {} ] ──</text>"##,
-                14.0 * ui_scale, split_header_y, if app_state.is_busy { "#f9e2af" } else if is_focused { &palette.method_color } else { &palette.text_main }, split_header_font, escape_xml(&focus_str)
-            ));
-
-            // Middle hint
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">[y: Kopyala │ &amp;ok: Uygula │ :q: Çık]</text>"##,
-                380.0 * ui_scale, split_header_y, palette.text_sub, (10.5 * ui_scale).round() as u32
-            ));
-
-            // Buttons on right
-            let btn_y = split_y + 3.0 * ui_scale;
-            let btn_h = 20.0 * ui_scale;
-            let btn_font = (10.5 * ui_scale).round() as u32;
-
-            // 1. [📋 Kopyala] Button
-            let copy_btn_w = 90.0 * ui_scale;
-            let copy_btn_x = w - 245.0 * ui_scale;
-            svg.push_str(&format!(
-                r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1"/>"##,
-                copy_btn_x, btn_y, copy_btn_w, btn_h, palette.card_bg, palette.method_color
-            ));
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold" text-anchor="middle">📋 Kopyala</text>"##,
-                copy_btn_x + copy_btn_w / 2.0, btn_y + 14.0 * ui_scale, palette.method_color, btn_font
-            ));
-
-            // 2. [▲] Button
-            let up_btn_x = w - 145.0 * ui_scale;
-            let arrow_w = 28.0 * ui_scale;
-            svg.push_str(&format!(
-                r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1"/>"##,
-                up_btn_x, btn_y, arrow_w, btn_h, palette.card_bg, palette.badge_bg
-            ));
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold" text-anchor="middle">▲</text>"##,
-                up_btn_x + arrow_w / 2.0, btn_y + 14.0 * ui_scale, palette.text_main, btn_font
-            ));
-
-            // 3. [▼] Button
-            let dn_btn_x = w - 110.0 * ui_scale;
-            svg.push_str(&format!(
-                r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1"/>"##,
-                dn_btn_x, btn_y, arrow_w, btn_h, palette.card_bg, palette.badge_bg
-            ));
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold" text-anchor="middle">▼</text>"##,
-                dn_btn_x + arrow_w / 2.0, btn_y + 14.0 * ui_scale, palette.text_main, btn_font
-            ));
-
-            // 4. [✕] Button
-            let cls_btn_x = w - 75.0 * ui_scale;
-            let cls_w = 28.0 * ui_scale;
-            svg.push_str(&format!(
-                r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1"/>"##,
-                cls_btn_x, btn_y, cls_w, btn_h, palette.card_bg, palette.var_color
-            ));
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold" text-anchor="middle">✕</text>"##,
-                cls_btn_x + cls_w / 2.0, btn_y + 14.0 * ui_scale, palette.var_color, btn_font
-            ));
-
-            // Vertical gutter separator line
-            let gutter_w = 48.0 * ui_scale;
-            let gutter_x = gutter_w;
-            let content_top_y = split_y + split_header_h + 8.0 * ui_scale;
-            let content_bottom_y = h - bottom_bars_h - 4.0 * ui_scale;
-
-            svg.push_str(&format!(
-                r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
-                gutter_x,
-                split_y + split_header_h,
-                gutter_x,
-                h - bottom_bars_h,
-                palette.badge_bg
-            ));
-
-            // Render lines with line numbers and syntax highlighting
-            if let Some(ref content) = app_state.report_content {
-                let all_lines: Vec<&str> = content.lines().collect();
-                let total_lines = all_lines.len();
-                let line_h = 18.0 * ui_scale;
-                let max_visible_lines =
-                    ((content_bottom_y - content_top_y) / line_h).floor() as usize;
-
-                let max_offset = total_lines.saturating_sub(max_visible_lines);
-                let offset = app_state.modal.report_scroll_offset.min(max_offset);
-
-                let line_font = (12.5 * ui_scale).round() as u32;
-                let gutter_font = (11.0 * ui_scale).round() as u32;
-
-                let mut cur_y = content_top_y + 12.0 * ui_scale;
-                for (idx, line) in all_lines
-                    .iter()
-                    .skip(offset)
-                    .take(max_visible_lines)
-                    .enumerate()
-                {
-                    let line_no = offset + idx + 1;
-
-                    // Gutter line number
-                    svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">{}</text>"##,
-                        gutter_x - 8.0 * ui_scale, cur_y, palette.text_sub, gutter_font, line_no
-                    ));
-
-                    // Syntax coloring (OpenAI Web GUI & Fabric Card styling)
-                    let color = if line.starts_with("#") || line.starts_with("===") {
-                        &palette.stereotype_color
-                    } else if line.starts_with("┌─ ⚙️")
-                        || line.starts_with("├─ ⚙️")
-                        || line.starts_with("└─")
-                        || line.starts_with("╭─ ⚙️")
-                        || line.starts_with("╰─")
-                    {
-                        &palette.method_color
-                    } else if line.starts_with("┌─ 💭") || line.starts_with("├─ 💭") {
-                        &palette.stereotype_color
-                    } else if line.starts_with("│  Status: ⚡") || line.starts_with("⚡") {
-                        &palette.var_color
-                    } else if line.starts_with("│  Status: ✓")
-                        || line.starts_with("✔")
-                        || line.starts_with("Status: PASS")
-                        || line.starts_with("SUCCESS")
-                        || line.starts_with("+ ")
-                    {
-                        &palette.method_color
-                    } else if line.starts_with("│  Status: ✖")
-                        || line.starts_with("✖")
-                        || line.starts_with("Status: FAIL")
-                        || line.starts_with("FAILED")
-                        || line.starts_with("- ")
-                    {
-                        &palette.var_color
-                    } else if line.starts_with("│") {
-                        &palette.text_sub
-                    } else if line.starts_with("💡") {
-                        &palette.stereotype_color
-                    } else if line.starts_with("```") {
-                        &palette.method_color
-                    } else if line.starts_with("---") {
-                        &palette.badge_bg
-                    } else if line.starts_with("* ") {
-                        &palette.stereotype_color
-                    } else {
-                        &palette.text_main
-                    };
-
-                    svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
-                        gutter_x + 12.0 * ui_scale, cur_y, color, line_font, escape_xml(line)
-                    ));
-
-                    cur_y += line_h;
-                }
-
-                // Scroll Indicator in header
-                let scroll_status = if total_lines <= max_visible_lines {
-                    "All".to_string()
-                } else if offset == 0 {
-                    "Top".to_string()
-                } else if offset >= max_offset {
-                    "Bot".to_string()
-                } else {
-                    format!("{:.0}%", (offset as f32 / total_lines as f32) * 100.0)
-                };
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">[{}]</text>"##,
-                    w - 255.0 * ui_scale, split_header_y, palette.stereotype_color, (11.0 * ui_scale).round() as u32, scroll_status
-                ));
-            }
-        }
-
-        // 4. Authentic Vim Statusline (Height: status_h at y = h - bottom_bars_h)
-        let status_y = h - bottom_bars_h;
-        let status_font = (11.5 * ui_scale).round() as u32;
-        let status_text_y = status_y + status_h * 0.65;
-        svg.push_str(&format!(
-            r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}"/>"##,
-            status_y, w, status_h, palette.badge_bg
-        ));
-
-        // Mode Badge
-        let (badge_bg, badge_text) = match app_state.modal.mode {
-            UiMode::Command => ("#fab387", "COMMAND"),
-            UiMode::NodeTest => ("#cba6f7", "TEST"),
-            UiMode::Search => ("#f9e2af", "SEARCH"),
-            UiMode::Report => ("#a6e3a1", "REPORT"),
-            _ => ("#89b4fa", "NORMAL"),
-        };
-        let badge_w: f32 = 84.0 * ui_scale;
-        svg.push_str(&format!(
-            r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}"/>"##,
-            status_y, badge_w, status_h, badge_bg
-        ));
-        svg.push_str(&format!(
-            r##"<text x="{}" y="{}" fill="#11111b" font-family="monospace" font-size="{}" font-weight="bold" text-anchor="middle">{}</text>"##,
-            badge_w / 2.0, status_text_y, status_font, badge_text
-        ));
-
-        // Project & Focus File
-        let project_name = app_state
-            .manifest
-            .as_ref()
-            .map(|m| m.project_name.as_str())
-            .unwrap_or("unbound");
-        let active_sym = app_state.active_node_id.as_deref().unwrap_or("canvas");
-        let file_info = format!(" 📁 {}  {}", project_name, active_sym);
-        svg.push_str(&format!(
-            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">{}</text>"##,
-            badge_w + 10.0 * ui_scale, status_text_y, palette.text_main, status_font, escape_xml(&file_info)
-        ));
-
-        // Middle: Busy Pacman animation or status message
-        let middle_x: f32 = (badge_w + 240.0 * ui_scale).min(w - 280.0 * ui_scale);
-        if app_state.is_busy {
-            let pacman_frame = ((std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis()
-                / 130)
-                % 6) as usize;
-
-            let pacman_art = match pacman_frame {
-                0 => "ᗧ • • • • 👻",
-                1 => " ᗤ • • • 👻",
-                2 => "  ᗧ • • 👻",
-                3 => "   ᗤ • 👻",
-                4 => "    ᗧ 👻",
-                _ => "     ᗤ💥",
-            };
-
-            let busy_text = format!("{} ⚙️ {}", pacman_art, app_state.busy_message);
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">{}</text>"##,
-                middle_x, status_text_y, "#f9e2af", status_font, escape_xml(&busy_text)
-            ));
-        } else if !app_state.status_message.is_empty() {
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
-                middle_x, status_text_y, palette.text_sub, status_font, escape_xml(&app_state.status_message)
-            ));
-        }
-
-        // Right: Metrics ruler
-        let zoom_pct = (app_state.transform.scale * 100.0) as u32;
-        let ruler = format!("utf-8 │ 120 FPS │ {}% │ Ln 1, Col 1", zoom_pct);
-        svg.push_str(&format!(
-            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">{}</text>"##,
-            w - 12.0 * ui_scale, status_text_y, palette.text_sub, status_font, escape_xml(&ruler)
-        ));
-
-        // 5. Vim Command Line (Height: cmd_h at y = h - cmd_h)
-        let cmd_y = h - cmd_h;
-        let cmd_font = (13.0 * ui_scale).round() as u32;
-        let cmd_text_y = cmd_y + cmd_h * 0.65;
-        svg.push_str(&format!(
-            r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}" opacity="0.98"/>"##,
-            cmd_y, w, cmd_h, palette.card_bg
-        ));
-        svg.push_str(&format!(
-            r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
-            cmd_y, w, cmd_y, palette.badge_bg
-        ));
-
-        if app_state.modal.mode == UiMode::Command {
-            let cmd_str = format!("{}█", escape_xml(&app_state.modal.command_buffer));
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">{}</text>"##,
-                12.0 * ui_scale, cmd_text_y, palette.text_main, cmd_font, cmd_str
-            ));
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">[Enter] Run  │  [Esc] Cancel</text>"##,
-                w - 14.0 * ui_scale, cmd_text_y, palette.text_sub, (11.0 * ui_scale).round() as u32
-            ));
-        } else {
-            // Normal / Report mode prompt hint
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">[AI Chat Buffer] Type 'i', '&amp;', or ':' to prompt AI / run commands (&amp;check, &amp;ai, &amp;advice, &amp;ok, &amp;set) │ 's': toggle split █</text>"##,
-                12.0 * ui_scale, cmd_text_y, palette.text_sub, (12.0 * ui_scale).round() as u32
-            ));
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">merm (Vim mode)</text>"##,
-                w - 14.0 * ui_scale, cmd_text_y, palette.badge_bg, (11.0 * ui_scale).round() as u32
-            ));
-        }
-
-        svg.push_str("</svg>");
-        Some(svg)
+        Some(crate::studio::StudioOverlay::build(
+            app_state, width, height,
+        ))
     }
 }
 
@@ -1530,44 +645,7 @@ impl ApplicationHandler for MermAppWindow {
                         return;
                     }
 
-                    // 2. Click on top bar active node indicator: 🎯 <Node> [t: Test │ i: Inspect │ e: Edit]
-                    if cy <= 34.0 * ui_scale
-                        && cx >= 350.0 * ui_scale
-                        && cx <= 760.0 * ui_scale
-                        && self.app_state.active_node_id.is_some()
-                    {
-                        self.app_state.open_node_editor(None);
-                        if let Some(ref w) = self.window {
-                            let title = format!("merm | {}", self.app_state.hud_status());
-                            w.set_title(&title);
-                            w.request_redraw();
-                        }
-                        return;
-                    }
-
-                    // 3. Click on bottom command line
-                    let cmd_h = 28.0 * ui_scale;
-                    if win_h > 0 && cy >= (win_h as f64 - cmd_h) {
-                        if self.app_state.modal.mode == UiMode::Report {
-                            self.app_state.modal.mode = UiMode::Command;
-                            if self.app_state.modal.command_buffer.is_empty() {
-                                self.app_state.modal.command_buffer = "&".to_string();
-                            }
-                        } else {
-                            self.app_state.modal.mode = UiMode::Command;
-                            if self.app_state.modal.command_buffer.is_empty() {
-                                self.app_state.modal.command_buffer = ":".to_string();
-                            }
-                        }
-                        if let Some(ref w) = self.window {
-                            let title = format!("merm | {}", self.app_state.hud_status());
-                            w.set_title(&title);
-                            w.request_redraw();
-                        }
-                        return;
-                    }
-
-                    // 4. Click inside persistent Split Buffer area
+                    // 2. Click inside persistent Split Buffer area
                     let is_split_open = self.app_state.show_split_buffer
                         || self.app_state.modal.mode == UiMode::Report;
                     let bottom_bars_h = (24.0 + 28.0) * ui_scale;
@@ -1649,9 +727,47 @@ impl ApplicationHandler for MermAppWindow {
                         return;
                     }
 
-                    // If click is in upper diagram canvas while in Report mode, restore Normal mode
-                    if self.app_state.modal.mode == UiMode::Report {
-                        self.app_state.modal.mode = UiMode::Normal;
+                    // 3. Studio 4-Panel Overlay Hit Testing (Top bar, Sidebars, Modals, Tools, Action Pills)
+                    if let Some(action) = crate::studio::StudioHitTester::handle_mouse_click(
+                        &mut self.app_state,
+                        cx,
+                        cy,
+                        win_w,
+                        win_h,
+                    ) {
+                        if action == UiAction::Quit {
+                            event_loop.exit();
+                            return;
+                        }
+                        self.app_state.handle_key_action(action);
+                        if let Some(ref w) = self.window {
+                            let title = format!("merm | {}", self.app_state.hud_status());
+                            w.set_title(&title);
+                            w.request_redraw();
+                        }
+                        return;
+                    }
+
+                    // 4. Click on bottom command line
+                    let cmd_h = 28.0 * ui_scale;
+                    if win_h > 0 && cy >= (win_h as f64 - cmd_h) {
+                        if self.app_state.modal.mode == UiMode::Report {
+                            self.app_state.modal.mode = UiMode::Command;
+                            if self.app_state.modal.command_buffer.is_empty() {
+                                self.app_state.modal.command_buffer = "&".to_string();
+                            }
+                        } else {
+                            self.app_state.modal.mode = UiMode::Command;
+                            if self.app_state.modal.command_buffer.is_empty() {
+                                self.app_state.modal.command_buffer = ":".to_string();
+                            }
+                        }
+                        if let Some(ref w) = self.window {
+                            let title = format!("merm | {}", self.app_state.hud_status());
+                            w.set_title(&title);
+                            w.request_redraw();
+                        }
+                        return;
                     }
 
                     let (world_x, world_y) = self
@@ -1740,22 +856,7 @@ impl ApplicationHandler for MermAppWindow {
                     if is_click {
                         self.pending_drag_pos = None;
                         self.app_state.active_drag_preview = None;
-                        // Click on a diagram node or text opens the Node Editor screen!
-                        if let Some(idx) = self.mouse_press_hit_idx.take() {
-                            let target_node_id = self
-                                .app_state
-                                .current_diagram
-                                .as_ref()
-                                .and_then(|d| d.nodes.get(idx).map(|n| n.id.clone()));
-                            if let Some(ref nid) = target_node_id {
-                                self.app_state.open_node_editor(Some(nid));
-                                if let Some(ref w) = self.window {
-                                    let title = format!("merm | {}", self.app_state.hud_status());
-                                    w.set_title(&title);
-                                    w.request_redraw();
-                                }
-                            }
-                        }
+                        self.mouse_press_hit_idx = None;
                     } else {
                         // Was a drag move: commit final position to diagram & record undo delta
                         if let Some((i, nx, ny)) = self.pending_drag_pos.take() {

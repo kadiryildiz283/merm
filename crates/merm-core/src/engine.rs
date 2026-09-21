@@ -35,21 +35,35 @@ pub struct ClassMemberInfo {
 pub struct NodeContractInfo {
     pub executable: bool,
     pub input_expected: Option<String>,
+    pub input_example: Option<String>,
     pub input_default: Option<String>,
     pub output_expected: Option<String>,
     pub output_default: Option<String>,
     pub last_status: Option<String>,
+    pub health: String,
+    pub last_duration_ms: f32,
+    pub exit_code: i32,
+    pub source_location: Option<String>,
 }
 
 impl Default for NodeContractInfo {
     fn default() -> Self {
         Self {
             executable: true,
-            input_expected: Some("JSON".to_string()),
+            input_expected: Some(
+                "{\n  \"user\": \"string\",\n  \"pass\": \"string\"\n}".to_string(),
+            ),
+            input_example: Some("{\n  \"user\": \"admin\",\n  \"pass\": \"secret\"\n}".to_string()),
             input_default: Some("{}".to_string()),
-            output_expected: Some("String".to_string()),
+            output_expected: Some(
+                "{\n  \"token\": \"string\",\n  \"expires_at\": \"u64\"\n}".to_string(),
+            ),
             output_default: Some("1".to_string()),
-            last_status: None,
+            last_status: Some("Idle".to_string()),
+            health: "Healthy".to_string(),
+            last_duration_ms: 1.2,
+            exit_code: 0,
+            source_location: Some("src/services/auth.rs:42".to_string()),
         }
     }
 }
@@ -68,6 +82,56 @@ pub struct DiagramNode {
     pub width: f32,
     pub height: f32,
     pub contract: Option<NodeContractInfo>,
+}
+
+impl DiagramNode {
+    pub fn clean_title(&self) -> String {
+        let mut title = self.label.clone();
+        if title.is_empty() {
+            title = self.id.clone();
+        }
+        if let Some(pos) = title.find("<<") {
+            title = title[..pos].trim().to_string();
+        }
+        if let Some(pos) = title.find('(') {
+            if let Some(end) = title.rfind(')') {
+                if end > pos {
+                    title = title[pos + 1..end].trim().to_string();
+                }
+            }
+        }
+        if title.is_empty() {
+            self.id.clone()
+        } else {
+            title
+        }
+    }
+
+    pub fn role(&self) -> String {
+        if let Some(ref st) = self.stereotype {
+            let s = st.trim_matches(['<', '>', ' ', '"', '\'']).to_lowercase();
+            if !s.is_empty() {
+                return s;
+            }
+        }
+        let full = format!("{} {}", self.id, self.label).to_lowercase();
+        for keyword in &[
+            "actor", "user", "app", "frontend", "mobile", "service", "api", "gateway", "database",
+            "postgres", "redis", "cache", "queue", "kafka",
+        ] {
+            if full.contains(keyword) {
+                return match *keyword {
+                    "user" => "actor".to_string(),
+                    "gateway" | "api" => "service".to_string(),
+                    "postgres" => "database".to_string(),
+                    "redis" => "cache".to_string(),
+                    "kafka" => "queue".to_string(),
+                    other => other.to_string(),
+                };
+            }
+        }
+        "service".to_string()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -537,44 +601,71 @@ impl RenderedDiagram {
                     }
                 }
 
+                // Floating Action Bar directly beneath selected node
+                if is_selected {
+                    let pill_w = 110.0f32;
+                    let pill_h = 24.0f32;
+                    let pill_x = node.x + (node.width - pill_w) / 2.0;
+                    let pill_y = node.y + node.height + 8.0;
+
+                    svg.push_str(&format!(
+                        r##"<rect x="{}" y="{}" width="{}" height="{}" rx="12" fill="{}" stroke="{}" stroke-width="1"/>
+                        <text x="{}" y="{}" fill="{}" font-size="12" font-family="monospace" text-anchor="middle" dominant-baseline="central">+   日   ❐   🗑</text>"##,
+                        pill_x, pill_y, pill_w, pill_h, palette.card_bg, palette.divider,
+                        pill_x + pill_w / 2.0, pill_y + pill_h / 2.0, palette.text_sub
+                    ));
+                }
+
                 svg.push_str("</g>\n");
             } else {
-                // Flowchart Node
+                // Modern Architecture Service Card (Apple / Linear Dark aesthetic)
+                let role = node.role();
+                let role_col = palette.role_color(&role);
+                let role_icon = palette.role_icon_symbol(&role);
+                let clean_title = node.clean_title();
+
                 svg.push_str(&format!(
-                    r##"<g id="node_{}" class="node">
-                    <rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}" stroke="{}" stroke-width="{}"/>"##,
+                    r##"<g id="node_{}" class="arch-node">
+                    <rect x="{}" y="{}" width="{}" height="{}" rx="10" fill="{}" stroke="{}" stroke-width="{}"/>"##,
                     escape_xml(&node.id),
-                    node.x, node.y, node.width, node.height, palette.card_bg, border_color, border_width
+                    node.x, node.y, node.width, node.height, palette.card_bg, role_col, border_width
                 ));
 
-                let center_x = node.x + node.width / 2.0;
-                if node.lines.len() <= 1 {
-                    let text = node
-                        .lines
-                        .first()
-                        .cloned()
-                        .unwrap_or_else(|| escape_xml(&node.label));
+                // Left Icon Box
+                let icon_box_size = 32.0f32;
+                let icon_x = node.x + 14.0;
+                let icon_y = node.y + (node.height - icon_box_size) / 2.0;
+                svg.push_str(&format!(
+                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}" fill-opacity="0.16" stroke="{}" stroke-width="1"/>
+                    <text x="{}" y="{}" fill="{}" font-size="16" text-anchor="middle" dominant-baseline="central">{}</text>"##,
+                    icon_x, icon_y, icon_box_size, icon_box_size, role_col, role_col,
+                    icon_x + icon_box_size / 2.0, icon_y + icon_box_size / 2.0, role_col, role_icon
+                ));
+
+                // Title and role badge
+                let text_x = icon_x + icon_box_size + 12.0;
+                let title_y = node.y + node.height * 0.42;
+                let role_y = node.y + node.height * 0.72;
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" fill="{}" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="bold">{}</text>
+                    <text x="{}" y="{}" fill="{}" font-family="system-ui, -apple-system, sans-serif" font-size="10.5" font-weight="600">&lt;&lt;{}&gt;&gt;</text>"##,
+                    text_x, title_y, palette.text_main, escape_xml(&clean_title),
+                    text_x, role_y, role_col, escape_xml(&role)
+                ));
+
+                // Floating Action Bar directly beneath selected node (Panel 2 from user image)
+                if is_selected {
+                    let pill_w = 110.0f32;
+                    let pill_h = 24.0f32;
+                    let pill_x = node.x + (node.width - pill_w) / 2.0;
+                    let pill_y = node.y + node.height + 8.0;
+
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="middle">{}</text>"##,
-                        center_x, node.y + node.height / 2.0, palette.text_main, text
+                        r##"<rect x="{}" y="{}" width="{}" height="{}" rx="12" fill="{}" stroke="{}" stroke-width="1"/>
+                        <text x="{}" y="{}" fill="{}" font-size="12" font-family="monospace" text-anchor="middle" dominant-baseline="central">+   日   ❐   🗑</text>"##,
+                        pill_x, pill_y, pill_w, pill_h, palette.card_bg, palette.divider,
+                        pill_x + pill_w / 2.0, pill_y + pill_h / 2.0, palette.text_sub
                     ));
-                } else {
-                    let line_height = 18.0f32;
-                    let start_y = node.y
-                        + (node.height - (node.lines.len() as f32 * line_height)) / 2.0
-                        + 10.0;
-                    for (idx, line) in node.lines.iter().enumerate() {
-                        let y_pos = start_y + (idx as f32 * line_height);
-                        let (weight, size, fill) = if idx == 0 {
-                            ("bold", "13", &palette.text_main)
-                        } else {
-                            ("normal", "11", &palette.text_sub)
-                        };
-                        svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace, 'Noto Color Emoji', sans-serif" font-size="{}" font-weight="{}" text-anchor="middle">{}</text>"##,
-                            center_x, y_pos, fill, size, weight, line
-                        ));
-                    }
                 }
 
                 svg.push_str("</g>\n");
@@ -869,21 +960,35 @@ fn extract_nodes_from_line(line: &str, nodes: &mut Vec<DiagramNode>) {
                     lines
                 };
 
-                let line_count = lines.len();
+                let _line_count = lines.len();
                 let max_len = lines.iter().map(|l| l.chars().count()).max().unwrap_or(8);
-                let width = (max_len as f32 * 7.5 + 36.0).clamp(180.0, 520.0);
-                let height = (line_count as f32 * 18.0 + 26.0).max(52.0);
+                let width = (max_len as f32 * 7.5 + 48.0).clamp(210.0, 520.0);
+                let height = 64.0f32;
+
+                let stereo = if let Some(p1) = clean_lbl.find("<<") {
+                    clean_lbl[p1..]
+                        .find(">>")
+                        .map(|p2| clean_lbl[p1 + 2..p1 + p2].trim().to_string())
+                } else {
+                    None
+                };
 
                 if let Some(existing) = nodes.iter_mut().find(|n| n.id == node_id) {
                     existing.label = clean_lbl.to_string();
                     existing.lines = lines;
                     existing.width = width;
                     existing.height = height;
+                    if stereo.is_some() {
+                        existing.stereotype = stereo;
+                    }
+                    if existing.contract.is_none() {
+                        existing.contract = Some(NodeContractInfo::default());
+                    }
                 } else {
                     nodes.push(DiagramNode {
                         id: node_id,
                         label: clean_lbl.to_string(),
-                        stereotype: None,
+                        stereotype: stereo,
                         doc_comment: None,
                         lines,
                         attributes: Vec::new(),
@@ -892,7 +997,7 @@ fn extract_nodes_from_line(line: &str, nodes: &mut Vec<DiagramNode>) {
                         y: 0.0,
                         width,
                         height,
-                        contract: None,
+                        contract: Some(NodeContractInfo::default()),
                     });
                 }
             }
