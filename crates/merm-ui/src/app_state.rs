@@ -117,11 +117,16 @@ impl AppState {
         let initial_source = if source.trim().is_empty() {
             r#"flowchart TD
     User["User <<actor>>"] -->|HTTPS| WebFrontend["Web Frontend <<app>>"]
-    WebFrontend -->|HTTPS| ApiGateway["API Gateway <<service>>"]
+    User -->|HTTPS| MobileApp["Mobile App <<app>>"]
+    WebFrontend -->|HTTPS/REST| ApiGateway["API Gateway <<service>>"]
+    MobileApp -->|HTTPS/REST| ApiGateway
     ApiGateway -->|gRPC| AuthService["Auth Service <<service>>"]
-    ApiGateway -->|SQL| Postgres["PostgreSQL <<database>>"]
-    AuthService -->|Cache Hit| Redis["Redis <<cache>>"]
-    ApiGateway -->|Events| MessageQueue["Message Queue <<queue>>"]
+    ApiGateway -->|gRPC| UserService["User Service <<service>>"]
+    ApiGateway -->|Events| NotificationService["Notification Service <<service>>"]
+    AuthService -->|SQL| Postgres["PostgreSQL <<database>>"]
+    AuthService -->|Cache| Redis["Redis <<cache>>"]
+    UserService -->|SQL| Postgres
+    NotificationService -->|Publish| MessageQueue["Message Queue <<queue>>"]
 "#
             .to_string()
         } else {
@@ -129,23 +134,50 @@ impl AppState {
         };
 
         let default_code = r#"use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthRequest {
-    pub token: String,
-    pub scope: Vec<String>,
+    pub user: String,
+    pub pass: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct AuthResponse {
-    pub valid: bool,
-    pub user_id: u64,
+    pub token: String,
+    pub expires_at: u64,
 }
 
-pub fn verify_token(req: &AuthRequest) -> AuthResponse {
-    AuthResponse {
-        valid: true,
-        user_id: 1001,
+#[derive(Error, Debug)]
+pub enum AuthError {
+    #[error("Invalid credentials")]
+    InvalidCredentials,
+    #[error("Token generation failed")]
+    TokenGenerationFailed,
+    #[error("Internal error: {0}")]
+    Internal(String),
+}
+
+pub struct AuthService;
+
+impl AuthService {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn login(&self, req: &AuthRequest) -> Result<AuthResponse, AuthError> {
+        if req.user == "admin" && req.pass == "secret" {
+            Ok(AuthResponse {
+                token: "jwt_token_preview".to_string(),
+                expires_at: 3600,
+            })
+        } else {
+            Err(AuthError::InvalidCredentials)
+        }
+    }
+
+    pub fn validate_token(&self, _token: &str) -> bool {
+        true
     }
 }
 "#
@@ -281,32 +313,70 @@ pub fn verify_token(req: &AuthRequest) -> AuthResponse {
                             }
                             "service" if clean.contains("Auth") => {
                                 c.input_expected = Some(
-                                    r#"{"token": "String", "scope": "Vec<String>"}"#.to_string(),
-                                );
-                                c.input_example = Some(
-                                    r#"{"token": "eyJhbGciOi...", "scope": ["read", "write"]}"#
+                                    "{\n  \"user\": \"string\",\n  \"pass\": \"string\"\n}"
                                         .to_string(),
                                 );
-                                c.output_expected =
-                                    Some(r#"{"valid": "bool", "user_id": "u64"}"#.to_string());
-                                c.output_default =
-                                    Some(r#"{"valid": true, "user_id": 1001}"#.to_string());
+                                c.input_example = Some(
+                                    "{\n  \"user\": \"admin\",\n  \"pass\": \"secret\"\n}"
+                                        .to_string(),
+                                );
+                                c.output_expected = Some(
+                                    "{\n  \"token\": \"string\",\n  \"expires_at\": \"u64\"\n}"
+                                        .to_string(),
+                                );
+                                c.output_default = Some("\"{}\"".to_string());
                                 c.last_status = Some("🟢 Idle".to_string());
                                 c.health = "🟢 Healthy".to_string();
                                 c.last_duration_ms = 1.2;
                                 c.exit_code = 0;
                                 c.source_location = Some("src/services/auth.rs:42".to_string());
                             }
-                            "service" => {
-                                c.input_expected =
-                                    Some(r#"{"path": "String", "method": "String"}"#.to_string());
-                                c.input_example = Some(
-                                    r#"{"path": "/api/v1/resource", "method": "POST"}"#.to_string(),
+                            "service" if clean.contains("User") => {
+                                c.input_expected = Some("{\n  \"user_id\": \"u64\"\n}".to_string());
+                                c.input_example = Some("{\n  \"user_id\": 1001\n}".to_string());
+                                c.output_expected = Some(
+                                    "{\n  \"username\": \"string\",\n  \"email\": \"string\"\n}"
+                                        .to_string(),
                                 );
-                                c.output_expected =
-                                    Some(r#"{"status": 200, "body": "String"}"#.to_string());
-                                c.output_default =
-                                    Some(r#"{"status": 200, "body": "OK"}"#.to_string());
+                                c.output_default = Some("\"{}\"".to_string());
+                                c.last_status = Some("🟢 Idle".to_string());
+                                c.health = "🟢 Healthy".to_string();
+                                c.last_duration_ms = 0.9;
+                                c.exit_code = 0;
+                                c.source_location = Some("src/services/user.rs:18".to_string());
+                            }
+                            "service" if clean.contains("Notification") => {
+                                c.input_expected = Some(
+                                    "{\n  \"recipient\": \"string\",\n  \"message\": \"string\"\n}"
+                                        .to_string(),
+                                );
+                                c.input_example = Some(
+                                    "{\n  \"recipient\": \"admin@example.com\",\n  \"message\": \"System alert\"\n}".to_string(),
+                                );
+                                c.output_expected = Some(
+                                    "{\n  \"status\": \"queued\",\n  \"id\": \"uuid\"\n}"
+                                        .to_string(),
+                                );
+                                c.output_default = Some("\"{}\"".to_string());
+                                c.last_status = Some("🟢 Idle".to_string());
+                                c.health = "🟢 Healthy".to_string();
+                                c.last_duration_ms = 1.5;
+                                c.exit_code = 0;
+                                c.source_location =
+                                    Some("src/services/notification.rs:32".to_string());
+                            }
+                            "service" => {
+                                c.input_expected = Some(
+                                    "{\n  \"path\": \"string\",\n  \"method\": \"string\"\n}"
+                                        .to_string(),
+                                );
+                                c.input_example = Some(
+                                    "{\n  \"path\": \"/api/v1/auth/login\",\n  \"method\": \"POST\"\n}".to_string(),
+                                );
+                                c.output_expected = Some(
+                                    "{\n  \"status\": 200,\n  \"body\": \"string\"\n}".to_string(),
+                                );
+                                c.output_default = Some("\"{}\"".to_string());
                                 c.last_status = Some("🟢 Idle".to_string());
                                 c.health = "🟢 Healthy".to_string();
                                 c.last_duration_ms = 0.8;

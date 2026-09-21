@@ -162,24 +162,31 @@ impl StudioOverlay {
             16.0 * ui_scale,
             dot_y,
             dot_r,
-            30.0 * ui_scale,
+            32.0 * ui_scale,
             dot_y,
             dot_r,
-            44.0 * ui_scale,
+            48.0 * ui_scale,
             dot_y,
             dot_r
         ));
 
-        // Brand Logo: ⬡ merm
-        let logo_x = 64.0 * ui_scale;
+        // Brand Logo: [O] merm with warm gold rounded icon badge
+        let logo_x = 68.0 * ui_scale;
+        let icon_box_s = 18.0 * ui_scale;
+        let icon_box_y = (top_h - icon_box_s) / 2.0;
         let logo_font = (13.0 * ui_scale).round() as u32;
+
         svg.push_str(&format!(
-            r##"<text x="{}" y="{}" fill="{}" font-family="system-ui, -apple-system, sans-serif" font-size="{}" font-weight="bold" dominant-baseline="central">⬡ merm</text>"##,
-            logo_x, dot_y, palette.edge_stroke, logo_font
+            r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="#f0883e"/>
+            <text x="{}" y="{}" fill="#ffffff" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold" text-anchor="middle" dominant-baseline="central">⬡</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, -apple-system, sans-serif" font-size="{}" font-weight="bold" dominant-baseline="central">merm</text>"##,
+            logo_x, icon_box_y, icon_box_s, icon_box_s,
+            logo_x + icon_box_s / 2.0, dot_y, (11.0 * ui_scale).round() as u32,
+            logo_x + icon_box_s + 8.0 * ui_scale, dot_y, palette.text_main, logo_font
         ));
 
         // Breadcrumb: backend / architecture (or auth_service)
-        let breadcrumb_x = logo_x + 78.0 * ui_scale;
+        let breadcrumb_x = logo_x + icon_box_s + 64.0 * ui_scale;
         let sub_name = if app_state.active_sidebar_tab == SidebarTab::AstView {
             "auth_service"
         } else {
@@ -192,50 +199,36 @@ impl StudioOverlay {
             breadcrumb_x, dot_y, palette.text_sub, breadcrumb_font, escape_xml(&breadcrumb_text)
         ));
 
-        // Right Action Pills: [ 🔍 100% ] [ ⛶ ] [ ⚙ ] [ 🎨 ]
-        let pill_h = 22.0 * ui_scale;
+        // Right Action Pills
+        let pill_h = 24.0 * ui_scale;
         let pill_y = (top_h - pill_h) / 2.0;
         let pill_font = (10.5 * ui_scale).round() as u32;
 
-        // 1. Zoom Pill
-        let zoom_pct = (app_state.transform.scale * 100.0).round() as u32;
-        let zoom_str = format!("🔍 {}%", zoom_pct);
-        let zoom_w = 68.0 * ui_scale;
-        let zoom_x = w - 175.0 * ui_scale;
-        svg.push_str(&format!(
-            r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1"/>
-            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="500" text-anchor="middle" dominant-baseline="central">{}</text>"##,
-            zoom_x, pill_y, zoom_w, pill_h, palette.card_header, palette.border,
-            zoom_x + zoom_w / 2.0, dot_y, palette.text_main, pill_font, zoom_str
-        ));
+        if app_state.active_sidebar_tab == SidebarTab::AstView {
+            let split_w = 32.0 * ui_scale;
+            let split_x = w - split_w - 14.0 * ui_scale;
+            svg.push_str(&format!(
+                r##"<rect x="{}" y="{}" width="{}" height="{}" rx="5" fill="{}" stroke="{}" stroke-width="1"/>
+                <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" text-anchor="middle" dominant-baseline="central">⊞</text>"##,
+                split_x, pill_y, split_w, pill_h, palette.card_header, palette.border,
+                split_x + split_w / 2.0, dot_y, palette.text_main, (12.0 * ui_scale).round() as u32
+            ));
+        } else {
+            let zoom_pct = (app_state.transform.scale * 100.0).round() as u32;
+            let bar_w = 148.0 * ui_scale;
+            let bar_x = w - bar_w - 14.0 * ui_scale;
 
-        // 2. Fit Pill [ ⛶ ]
-        let fit_w = 26.0 * ui_scale;
-        let fit_x = w - 100.0 * ui_scale;
-        svg.push_str(&format!(
-            r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1"/>
-            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" text-anchor="middle" dominant-baseline="central">⛶</text>"##,
-            fit_x, pill_y, fit_w, pill_h, palette.card_header, palette.border,
-            fit_x + fit_w / 2.0, dot_y, palette.text_main, pill_font
-        ));
-
-        // 3. Settings Pill [ ⚙ ]
-        let set_x = w - 68.0 * ui_scale;
-        svg.push_str(&format!(
-            r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1"/>
-            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" text-anchor="middle" dominant-baseline="central">⚙</text>"##,
-            set_x, pill_y, fit_w, pill_h, palette.card_header, palette.border,
-            set_x + fit_w / 2.0, dot_y, palette.text_main, pill_font
-        ));
-
-        // 4. Theme / Palette Pill [ 🎨 ]
-        let theme_x = w - 36.0 * ui_scale;
-        svg.push_str(&format!(
-            r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1"/>
-            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" text-anchor="middle" dominant-baseline="central">🎨</text>"##,
-            theme_x, pill_y, fit_w, pill_h, palette.card_header, palette.border,
-            theme_x + fit_w / 2.0, dot_y, palette.text_main, pill_font
-        ));
+            svg.push_str(&format!(
+                r##"<rect x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}" stroke="{}" stroke-width="1"/>
+                <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" dominant-baseline="central">🔍 {}%</text>
+                <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" text-anchor="middle" dominant-baseline="central">⛶</text>
+                <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" text-anchor="middle" dominant-baseline="central">⚙</text>"##,
+                bar_x, pill_y, bar_w, pill_h, palette.card_header, palette.border,
+                bar_x + 10.0 * ui_scale, dot_y, palette.text_main, pill_font, zoom_pct,
+                bar_x + bar_w - 42.0 * ui_scale, dot_y, palette.text_sub, pill_font + 1,
+                bar_x + bar_w - 18.0 * ui_scale, dot_y, palette.text_sub, pill_font + 1
+            ));
+        }
     }
 
     fn render_left_sidebar(
@@ -262,15 +255,15 @@ impl StudioOverlay {
             palette.border
         ));
 
-        let item_h = 32.0 * ui_scale;
+        let item_h = 30.0 * ui_scale;
         let mut cur_y = top_y + 12.0 * ui_scale;
         let font_size = (12.0 * ui_scale).round() as u32;
 
         let nav_items = [
-            (SidebarTab::Explorer, "📁", "Explorer"),
-            (SidebarTab::Diagrams, "📊", "Diagrams"),
-            (SidebarTab::AstView, "🌳", "AST View"),
-            (SidebarTab::Executions, "⚡", "Executions"),
+            (SidebarTab::Explorer, "⬚", "Explorer"),
+            (SidebarTab::Diagrams, "☷", "Diagrams"),
+            (SidebarTab::AstView, "⎇", "AST View"),
+            (SidebarTab::Executions, "▷", "Executions"),
             (SidebarTab::Settings, "⚙", "Settings"),
         ];
 
@@ -281,10 +274,8 @@ impl StudioOverlay {
 
             if is_active {
                 svg.push_str(&format!(
-                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}" fill-opacity="0.9"/>
-                    <rect x="{}" y="{}" width="{}" height="{}" rx="2" fill="{}"/>"##,
-                    item_x, cur_y, item_w, item_h, palette.card_header,
-                    item_x, cur_y + 4.0 * ui_scale, 3.0 * ui_scale, item_h - 8.0 * ui_scale, palette.edge_stroke
+                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}" fill-opacity="0.85"/>"##,
+                    item_x, cur_y, item_w, item_h, palette.card_header
                 ));
             }
 
@@ -296,64 +287,69 @@ impl StudioOverlay {
             let font_weight = if is_active { "bold" } else { "normal" };
 
             svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-size="14" dominant-baseline="central">{}</text>
+                r##"<text x="{}" y="{}" fill="{}" font-size="13" dominant-baseline="central">{}</text>
                 <text x="{}" y="{}" fill="{}" font-family="system-ui, -apple-system, sans-serif" font-size="{}" font-weight="{}" dominant-baseline="central">{}</text>"##,
                 item_x + 12.0 * ui_scale, cur_y + item_h / 2.0, text_col, icon,
-                item_x + 36.0 * ui_scale, cur_y + item_h / 2.0, text_col, font_size, font_weight, label
+                item_x + 34.0 * ui_scale, cur_y + item_h / 2.0, text_col, font_size, font_weight, label
             ));
 
             cur_y += item_h + 3.0 * ui_scale;
         }
 
         // Workspaces Section Divider & Header
-        cur_y += 14.0 * ui_scale;
+        cur_y += 18.0 * ui_scale;
+        let header_font = (11.0 * ui_scale).round() as u32;
         svg.push_str(&format!(
-            r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
-            14.0 * ui_scale,
-            cur_y,
-            sidebar_w - 14.0 * ui_scale,
-            cur_y,
-            palette.divider
-        ));
-        cur_y += 16.0 * ui_scale;
-
-        let header_font = (10.0 * ui_scale).round() as u32;
-        svg.push_str(&format!(
-            r##"<text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold">WORKSPACES</text>
+            r##"<text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="500">Workspaces</text>
             <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold" text-anchor="end">+</text>"##,
-            16.0 * ui_scale, cur_y, palette.text_muted, header_font,
-            sidebar_w - 16.0 * ui_scale, cur_y, palette.edge_stroke, header_font + 2
+            16.0 * ui_scale, cur_y, palette.text_sub, header_font,
+            sidebar_w - 16.0 * ui_scale, cur_y, palette.text_muted, header_font + 1
         ));
         cur_y += 16.0 * ui_scale;
 
         // Workspaces list
         for ws in &app_state.workspaces {
             let is_active = ws == &app_state.active_workspace;
-            let (dot_col, text_col, font_weight) = if is_active {
-                (palette.public_vis.as_str(), &palette.text_main, "bold")
+            let item_x = 10.0 * ui_scale;
+            let item_w = sidebar_w - 20.0 * ui_scale;
+            let ws_h = 26.0 * ui_scale;
+
+            if is_active {
+                svg.push_str(&format!(
+                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="5" fill="{}" fill-opacity="0.6"/>"##,
+                    item_x, cur_y, item_w, ws_h, palette.card_header
+                ));
+            }
+
+            let text_col = if is_active {
+                &palette.text_main
             } else {
-                (palette.text_muted.as_str(), &palette.text_sub, "normal")
+                &palette.text_sub
             };
+            let font_weight = if is_active { "bold" } else { "normal" };
 
             svg.push_str(&format!(
-                r##"<circle cx="{}" cy="{}" r="3.5" fill="{}"/>
+                r##"<text x="{}" y="{}" fill="{}" font-size="11" dominant-baseline="central">⎚</text>
                 <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="{}" dominant-baseline="central">{}</text>"##,
-                22.0 * ui_scale, cur_y + 10.0 * ui_scale, dot_col,
-                34.0 * ui_scale, cur_y + 10.0 * ui_scale, text_col, font_size, font_weight, ws
+                20.0 * ui_scale, cur_y + ws_h / 2.0, text_col,
+                34.0 * ui_scale, cur_y + ws_h / 2.0, text_col, font_size, font_weight, ws
             ));
 
-            cur_y += 24.0 * ui_scale;
+            cur_y += ws_h + 4.0 * ui_scale;
         }
 
-        // Bottom Footer Status inside Sidebar
-        let footer_y = top_y + sidebar_h - 40.0 * ui_scale;
+        // Bottom Footer Status inside Sidebar:
+        // Rust
+        // v0.1.0
+        // 🟢 Ready
+        let footer_y = top_y + sidebar_h - 56.0 * ui_scale;
         svg.push_str(&format!(
-            r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>
-            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">Rust v0.1.0</text>
-            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">🟢 Ready</text>"##,
-            14.0 * ui_scale, footer_y, sidebar_w - 14.0 * ui_scale, footer_y, palette.divider,
+            r##"<text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">Rust</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">v0.1.0</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="500">🟢 Ready</text>"##,
+            16.0 * ui_scale, footer_y, palette.text_sub, (11.0 * ui_scale).round() as u32,
             16.0 * ui_scale, footer_y + 16.0 * ui_scale, palette.text_muted, (10.5 * ui_scale).round() as u32,
-            16.0 * ui_scale, footer_y + 30.0 * ui_scale, palette.public_vis, (11.0 * ui_scale).round() as u32
+            16.0 * ui_scale, footer_y + 34.0 * ui_scale, palette.public_vis, (11.0 * ui_scale).round() as u32
         ));
     }
 
@@ -567,58 +563,69 @@ impl StudioOverlay {
                 "Input (Expected)",
                 contract
                     .and_then(|c| c.input_expected.as_deref())
-                    .unwrap_or("{\n  \"token\": \"String\",\n  \"scope\": \"Vec<String>\"\n}"),
-                48.0 * ui_scale,
+                    .unwrap_or("{\n  \"user\": \"string\",\n  \"pass\": \"string\"\n}"),
             ),
             (
                 "Input (Example)",
-                contract.and_then(|c| c.input_example.as_deref()).unwrap_or(
-                    "{\n  \"token\": \"eyJhbGciOi...\",\n  \"scope\": [\"read\", \"write\"]\n}",
-                ),
-                48.0 * ui_scale,
+                contract
+                    .and_then(|c| c.input_example.as_deref())
+                    .unwrap_or("{\n  \"user\": \"admin\",\n  \"pass\": \"secret\"\n}"),
             ),
             (
                 "Output (Expected)",
                 contract
                     .and_then(|c| c.output_expected.as_deref())
-                    .unwrap_or("{\n  \"valid\": \"bool\",\n  \"user_id\": \"u64\"\n}"),
-                48.0 * ui_scale,
+                    .unwrap_or("{\n  \"token\": \"string\",\n  \"expires_at\": \"u64\"\n}"),
             ),
             (
                 "Output (Default)",
                 contract
                     .and_then(|c| c.output_default.as_deref())
-                    .unwrap_or("{\n  \"valid\": true,\n  \"user_id\": 1001\n}"),
-                48.0 * ui_scale,
+                    .unwrap_or("\"{}\""),
             ),
         ];
 
-        for (title, code, code_h) in sections {
+        for (title, code) in sections {
             svg.push_str(&format!(
                 r##"<text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold">{}</text>"##,
                 card_x, cur_y + 10.0 * ui_scale, palette.text_main, font_title, title
             ));
             cur_y += 18.0 * ui_scale;
 
+            let lines: Vec<&str> = code.lines().collect();
+            let code_h = ((lines.len() as f32 * 14.5 + 12.0) * ui_scale).max(28.0 * ui_scale);
+
             svg.push_str(&format!(
-                r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1"/>"##,
+                r##"<rect x="{}" y="{}" width="{}" height="{}" rx="5" fill="{}" stroke="{}" stroke-width="1"/>"##,
                 card_x, cur_y, card_w, code_h, palette.card_bg, palette.divider
             ));
 
-            let lines: Vec<&str> = code.lines().collect();
-            for (line_idx, line) in lines.iter().enumerate().take(3) {
-                let ly = cur_y + 14.0 * ui_scale + (line_idx as f32 * 14.0 * ui_scale);
-                svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
-                    card_x + 8.0 * ui_scale, ly, palette.text_sub, font_code, escape_xml(line)
-                ));
+            for (line_idx, line) in lines.iter().enumerate() {
+                let ly = cur_y + 13.0 * ui_scale + (line_idx as f32 * 14.5 * ui_scale);
+                let trimmed = line.trim();
+                if trimmed == "{" || trimmed == "}" {
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
+                        card_x + 10.0 * ui_scale, ly, palette.text_sub, font_code, escape_xml(line)
+                    ));
+                } else if let Some((k, v)) = line.split_once(':') {
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" font-family="monospace" font-size="{}"><tspan fill="#39c5cf">{}</tspan><tspan fill="{}">:</tspan><tspan fill="#e5a93c">{}</tspan></text>"##,
+                        card_x + 10.0 * ui_scale, ly, font_code, escape_xml(k), palette.text_sub, escape_xml(v)
+                    ));
+                } else {
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
+                        card_x + 10.0 * ui_scale, ly, palette.type_color, font_code, escape_xml(line)
+                    ));
+                }
             }
 
             cur_y += code_h + 12.0 * ui_scale;
         }
 
         // Section: Runtime State
-        let state_h = 60.0 * ui_scale;
+        let state_h = 68.0 * ui_scale;
         svg.push_str(&format!(
             r##"<text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold">Runtime State</text>"##,
             card_x, cur_y + 10.0 * ui_scale, palette.text_main, font_title
@@ -626,27 +633,37 @@ impl StudioOverlay {
         cur_y += 18.0 * ui_scale;
 
         svg.push_str(&format!(
-            r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1"/>
-            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">State: <tspan fill="{}">🟢 Idle</tspan></text>
-            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">Last Run: <tspan fill="{}">1.2 ms</tspan></text>
-            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">Exit Code: <tspan fill="{}">0</tspan></text>"##,
+            r##"<rect x="{}" y="{}" width="{}" height="{}" rx="5" fill="{}" stroke="{}" stroke-width="1"/>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">State</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold" text-anchor="end"><tspan fill="{}">🟢 Idle</tspan></text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">Last Run</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold" text-anchor="end">1.2 ms</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">Exit Code</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold" text-anchor="end">0</text>"##,
             card_x, cur_y, card_w, state_h, palette.card_bg, palette.divider,
-            card_x + 10.0 * ui_scale, cur_y + 16.0 * ui_scale, palette.text_sub, font_code, palette.public_vis,
-            card_x + 10.0 * ui_scale, cur_y + 32.0 * ui_scale, palette.text_sub, font_code, palette.text_main,
-            card_x + 10.0 * ui_scale, cur_y + 48.0 * ui_scale, palette.text_sub, font_code, palette.text_main
+            card_x + 10.0 * ui_scale, cur_y + 18.0 * ui_scale, palette.text_sub, font_code,
+            card_x + card_w - 10.0 * ui_scale, cur_y + 18.0 * ui_scale, palette.public_vis, font_code, palette.public_vis,
+            card_x + 10.0 * ui_scale, cur_y + 38.0 * ui_scale, palette.text_sub, font_code,
+            card_x + card_w - 10.0 * ui_scale, cur_y + 38.0 * ui_scale, palette.text_main, font_code,
+            card_x + 10.0 * ui_scale, cur_y + 56.0 * ui_scale, palette.text_sub, font_code,
+            card_x + card_w - 10.0 * ui_scale, cur_y + 56.0 * ui_scale, palette.text_main, font_code
         ));
         cur_y += state_h + 16.0 * ui_scale;
 
-        // Footer Source Link Button: Source: src/services/auth.rs:42 >
+        // Footer Source Link Button: Source  src/services/auth.rs:42  >
         let src_path = contract
             .and_then(|c| c.source_location.as_deref())
             .unwrap_or("src/services/auth.rs:42");
         let btn_h = 28.0 * ui_scale;
         svg.push_str(&format!(
             r##"<rect x="{}" y="{}" width="{}" height="{}" rx="5" fill="{}" stroke="{}" stroke-width="1"/>
-            <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="{}" dominant-baseline="central">Source: {} &gt;</text>"##,
-            card_x, cur_y, card_w, btn_h, palette.card_header, palette.edge_stroke,
-            card_x + 10.0 * ui_scale, cur_y + btn_h / 2.0, palette.edge_stroke, (11.0 * ui_scale).round() as u32, src_path
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" dominant-baseline="central">Source</text>
+            <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="{}" dominant-baseline="central">{}</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" text-anchor="end" dominant-baseline="central">&gt;</text>"##,
+            card_x, cur_y, card_w, btn_h, palette.card_header, palette.border,
+            card_x + 10.0 * ui_scale, cur_y + btn_h / 2.0, palette.text_sub, (11.0 * ui_scale).round() as u32,
+            card_x + 56.0 * ui_scale, cur_y + btn_h / 2.0, palette.edge_stroke, (10.5 * ui_scale).round() as u32, src_path,
+            card_x + card_w - 10.0 * ui_scale, cur_y + btn_h / 2.0, palette.text_sub, (12.0 * ui_scale).round() as u32
         ));
     }
 
@@ -730,7 +747,7 @@ impl StudioOverlay {
         let (node_count, edge_count) = if let Some(ref d) = app_state.current_diagram {
             (d.nodes.len(), d.edges.len())
         } else {
-            (7, 6)
+            (12, 14)
         };
 
         svg.push_str(&format!(
@@ -742,15 +759,23 @@ impl StudioOverlay {
         let sys_h = 100.0 * ui_scale;
         svg.push_str(&format!(
             r##"<rect x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}" stroke="{}" stroke-width="1"/>
-            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">Nodes: <tspan fill="{}" font-weight="bold">{}</tspan></text>
-            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">Edges: <tspan fill="{}" font-weight="bold">{}</tspan></text>
-            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">Services: <tspan fill="{}" font-weight="bold">6</tspan></text>
-            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">Databases: <tspan fill="{}" font-weight="bold">2</tspan></text>"##,
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">Nodes</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold" text-anchor="end">{}</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">Edges</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold" text-anchor="end">{}</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">Services</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold" text-anchor="end">6</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">Databases</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold" text-anchor="end">2</text>"##,
             card_x, cur_y, card_w, sys_h, palette.card_bg, palette.divider,
-            card_x + 12.0 * ui_scale, cur_y + 22.0 * ui_scale, palette.text_sub, font_item, palette.text_main, node_count,
-            card_x + 12.0 * ui_scale, cur_y + 44.0 * ui_scale, palette.text_sub, font_item, palette.text_main, edge_count,
-            card_x + 12.0 * ui_scale, cur_y + 66.0 * ui_scale, palette.text_sub, font_item, palette.text_main,
-            card_x + 12.0 * ui_scale, cur_y + 88.0 * ui_scale, palette.text_sub, font_item, palette.text_main
+            card_x + 12.0 * ui_scale, cur_y + 22.0 * ui_scale, palette.text_sub, font_item,
+            card_x + card_w - 12.0 * ui_scale, cur_y + 22.0 * ui_scale, palette.text_main, font_item, node_count,
+            card_x + 12.0 * ui_scale, cur_y + 44.0 * ui_scale, palette.text_sub, font_item,
+            card_x + card_w - 12.0 * ui_scale, cur_y + 44.0 * ui_scale, palette.text_main, font_item, edge_count,
+            card_x + 12.0 * ui_scale, cur_y + 66.0 * ui_scale, palette.text_sub, font_item,
+            card_x + card_w - 12.0 * ui_scale, cur_y + 66.0 * ui_scale, palette.text_main, font_item,
+            card_x + 12.0 * ui_scale, cur_y + 88.0 * ui_scale, palette.text_sub, font_item,
+            card_x + card_w - 12.0 * ui_scale, cur_y + 88.0 * ui_scale, palette.text_main, font_item
         ));
         cur_y += sys_h + 18.0 * ui_scale;
 
@@ -764,13 +789,19 @@ impl StudioOverlay {
         let health_card_h = 80.0 * ui_scale;
         svg.push_str(&format!(
             r##"<rect x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}" stroke="{}" stroke-width="1"/>
-            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}"><tspan fill="{}">🟢 Healthy:</tspan> 10</text>
-            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}"><tspan fill="{}">🟡 Warning:</tspan> 1</text>
-            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}"><tspan fill="{}">🔴 Error:</tspan> 1</text>"##,
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">🟢 Healthy</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold" text-anchor="end">10</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">🟡 Warning</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold" text-anchor="end">1</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">🔴 Error</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold" text-anchor="end">1</text>"##,
             card_x, cur_y, card_w, health_card_h, palette.card_bg, palette.divider,
-            card_x + 12.0 * ui_scale, cur_y + 22.0 * ui_scale, palette.text_main, font_item, palette.public_vis,
-            card_x + 12.0 * ui_scale, cur_y + 46.0 * ui_scale, palette.text_main, font_item, palette.protected_vis,
-            card_x + 12.0 * ui_scale, cur_y + 70.0 * ui_scale, palette.text_main, font_item, palette.private_vis
+            card_x + 12.0 * ui_scale, cur_y + 22.0 * ui_scale, palette.text_main, font_item,
+            card_x + card_w - 12.0 * ui_scale, cur_y + 22.0 * ui_scale, palette.text_main, font_item,
+            card_x + 12.0 * ui_scale, cur_y + 46.0 * ui_scale, palette.text_main, font_item,
+            card_x + card_w - 12.0 * ui_scale, cur_y + 46.0 * ui_scale, palette.text_main, font_item,
+            card_x + 12.0 * ui_scale, cur_y + 70.0 * ui_scale, palette.text_main, font_item,
+            card_x + card_w - 12.0 * ui_scale, cur_y + 70.0 * ui_scale, palette.text_main, font_item
         ));
         cur_y += health_card_h + 18.0 * ui_scale;
 
@@ -796,9 +827,9 @@ impl StudioOverlay {
         ));
         cur_y += 34.0 * ui_scale;
 
-        // 4. Section: Layout Algorithm Toggle
+        // 4. Section: Layout
         svg.push_str(&format!(
-            r##"<text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold">Layout Algorithm</text>"##,
+            r##"<text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold">Layout</text>"##,
             card_x, cur_y + 12.0 * ui_scale, palette.text_main, font_header
         ));
         cur_y += 24.0 * ui_scale;
@@ -809,23 +840,23 @@ impl StudioOverlay {
             (LayoutAlgorithm::Grid, "Grid"),
         ];
 
-        let btn_h = 26.0 * ui_scale;
+        let btn_h = 28.0 * ui_scale;
         for (algo, label) in algos {
             let is_sel = app_state.layout_algorithm == algo;
             let bg_fill = if is_sel {
-                &palette.edge_stroke
+                "#1a3d66"
             } else {
-                &palette.card_bg
+                palette.card_bg.as_str()
             };
             let border_col = if is_sel {
-                &palette.edge_stroke
+                palette.edge_stroke.as_str()
             } else {
-                &palette.divider
+                palette.divider.as_str()
             };
             let text_col = if is_sel {
                 "#ffffff"
             } else {
-                &palette.text_main
+                palette.text_main.as_str()
             };
             let weight = if is_sel { "bold" } else { "500" };
 
@@ -1005,11 +1036,14 @@ impl StudioOverlay {
             palette.divider
         ));
 
+        let editor_foot_h = 24.0 * ui_scale;
+
+        // Line numbers & Syntax-colored code
         let line_h = 19.0 * ui_scale;
         let font_code = (11.5 * ui_scale).round() as u32;
         let lines: Vec<&str> = app_state.active_code_content.lines().collect();
 
-        for (i, line) in lines.iter().enumerate().take(30) {
+        for (i, line) in lines.iter().enumerate().take(25) {
             let ly = y + tab_bar_h + 16.0 * ui_scale + (i as f32 * line_h);
 
             // Line number
@@ -1018,25 +1052,82 @@ impl StudioOverlay {
                 x + line_num_w - 8.0 * ui_scale, ly, palette.text_muted, font_code, i + 1
             ));
 
-            // Syntax colored code line
-            let col = if line.trim_start().starts_with("use ")
-                || line.trim_start().starts_with("pub fn ")
-                || line.trim_start().starts_with("pub struct ")
-            {
-                palette.package_vis.as_str()
-            } else if line.trim_start().starts_with("#[derive") {
-                palette.protected_vis.as_str()
-            } else if line.contains("pub ") {
-                palette.text_main.as_str()
+            let trimmed = line.trim();
+            if trimmed.starts_with("//") {
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-style="italic">{}</text>"##,
+                    x + line_num_w + 12.0 * ui_scale, ly, palette.comment_color, font_code, escape_xml(line)
+                ));
+            } else if trimmed.starts_with("#[") {
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" fill="#79c0ff" font-family="monospace" font-size="{}">{}</text>"##,
+                    x + line_num_w + 12.0 * ui_scale, ly, font_code, escape_xml(line)
+                ));
+            } else if trimmed.starts_with("use ") {
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" font-family="monospace" font-size="{}"><tspan fill="#ff7b72" font-weight="bold">use </tspan><tspan fill="#79c0ff">{}</tspan></text>"##,
+                    x + line_num_w + 12.0 * ui_scale, ly, font_code, escape_xml(trimmed.strip_prefix("use ").unwrap_or(""))
+                ));
+            } else if trimmed.starts_with("pub struct ") {
+                let name = trimmed
+                    .strip_prefix("pub struct ")
+                    .unwrap_or("")
+                    .trim_end_matches('{')
+                    .trim();
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" font-family="monospace" font-size="{}"><tspan fill="#ff7b72" font-weight="bold">pub struct </tspan><tspan fill="#7ee787" font-weight="bold">{}</tspan><tspan fill="{}"> {{</tspan></text>"##,
+                    x + line_num_w + 12.0 * ui_scale, ly, font_code, escape_xml(name), palette.text_sub
+                ));
+            } else if trimmed.starts_with("pub enum ") {
+                let name = trimmed
+                    .strip_prefix("pub enum ")
+                    .unwrap_or("")
+                    .trim_end_matches('{')
+                    .trim();
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" font-family="monospace" font-size="{}"><tspan fill="#ff7b72" font-weight="bold">pub enum </tspan><tspan fill="#7ee787" font-weight="bold">{}</tspan><tspan fill="{}"> {{</tspan></text>"##,
+                    x + line_num_w + 12.0 * ui_scale, ly, font_code, escape_xml(name), palette.text_sub
+                ));
+            } else if trimmed.starts_with("pub ") && trimmed.contains(':') {
+                if let Some((field_part, type_part)) = trimmed.split_once(':') {
+                    let field = field_part.strip_prefix("pub ").unwrap_or(field_part).trim();
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" font-family="monospace" font-size="{}"><tspan fill="{}">    pub </tspan><tspan fill="#79c0ff">{}</tspan><tspan fill="{}">:</tspan><tspan fill="#39c5cf">{}</tspan></text>"##,
+                        x + line_num_w + 12.0 * ui_scale, ly, font_code, palette.text_sub, escape_xml(field), palette.text_sub, escape_xml(type_part)
+                    ));
+                } else {
+                    svg.push_str(&format!(
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
+                        x + line_num_w + 12.0 * ui_scale, ly, palette.text_main, font_code, escape_xml(line)
+                    ));
+                }
+            } else if trimmed == "}" {
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">}}</text>"##,
+                    x + line_num_w + 12.0 * ui_scale, ly, palette.text_sub, font_code
+                ));
             } else {
-                palette.var_color.as_str()
-            };
-
-            svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
-                x + line_num_w + 12.0 * ui_scale, ly, col, font_code, escape_xml(line)
-            ));
+                svg.push_str(&format!(
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
+                    x + line_num_w + 12.0 * ui_scale, ly, palette.text_main, font_code, escape_xml(line)
+                ));
+            }
         }
+
+        // Bottom Editor Footer: Rust  Ln 1, Col 1  UTF-8
+        let editor_foot_y = y + h - editor_foot_h;
+        svg.push_str(&format!(
+            r##"<rect x="{}" y="{}" width="{}" height="{}" fill="{}"/>
+            <line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" dominant-baseline="central">Rust</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" text-anchor="middle" dominant-baseline="central">Ln 1, Col 1</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" text-anchor="end" dominant-baseline="central">UTF-8</text>"##,
+            x, editor_foot_y, left_w, editor_foot_h, palette.card_bg,
+            x, editor_foot_y, x + left_w, editor_foot_y, palette.border,
+            x + 14.0 * ui_scale, editor_foot_y + editor_foot_h / 2.0, palette.text_sub, (10.5 * ui_scale).round() as u32,
+            x + left_w / 2.0, editor_foot_y + editor_foot_h / 2.0, palette.text_muted, (10.5 * ui_scale).round() as u32,
+            x + left_w - 14.0 * ui_scale, editor_foot_y + editor_foot_h / 2.0, palette.text_muted, (10.5 * ui_scale).round() as u32
+        ));
 
         // Right Pane: Interactive AST View (Panel 3 right)
         let rx = x + left_w;
@@ -1050,51 +1141,43 @@ impl StudioOverlay {
             r##"<rect x="{}" y="{}" width="{}" height="{}" fill="{}"/>
             <line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>
             <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold" dominant-baseline="central">AST View</text>
-            <rect x="{}" y="{}" width="65" height="18" rx="4" fill="{}" fill-opacity="0.2"/>
-            <text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="middle" dominant-baseline="central">syn AST</text>"##,
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" text-anchor="end" dominant-baseline="central">✕</text>"##,
             rx, y, right_w, tab_bar_h, palette.card_bg,
             rx, y + tab_bar_h, rx + right_w, y + tab_bar_h, palette.border,
-            rx + 14.0 * ui_scale, y + tab_bar_h / 2.0, palette.text_main, (13.0 * ui_scale).round() as u32,
-            rx + right_w - 80.0 * ui_scale, y + (tab_bar_h - 18.0) / 2.0, palette.package_vis,
-            rx + right_w - 47.5 * ui_scale, y + tab_bar_h / 2.0, palette.package_vis, (10.0 * ui_scale).round() as u32
+            rx + 14.0 * ui_scale, y + tab_bar_h / 2.0, palette.text_main, (12.5 * ui_scale).round() as u32,
+            rx + right_w - 14.0 * ui_scale, y + tab_bar_h / 2.0, palette.text_sub, (11.0 * ui_scale).round() as u32
         ));
 
-        // AST Tree Hierarchy
-        let mut tree_y = y + tab_bar_h + 18.0 * ui_scale;
-        let tree_items = [
-            ("📦", "Crate: backend", palette.text_main.as_str(), true),
-            ("📂", "modules", palette.text_sub.as_str(), false),
-            ("📂", "services", palette.text_sub.as_str(), false),
-            ("📄", "auth.rs", palette.text_main.as_str(), true),
-            (
-                "🔷",
-                "struct AuthRequest",
-                palette.type_color.as_str(),
-                false,
-            ),
-            (
-                "🔷",
-                "struct AuthResponse",
-                palette.type_color.as_str(),
-                false,
-            ),
-            ("⚡", "fn verify_token", palette.edge_stroke.as_str(), true),
-            ("🧪", "test_token_valid", palette.public_vis.as_str(), false),
+        // AST Tree Hierarchy matching Panel 3
+        let mut tree_y = y + tab_bar_h + 16.0 * ui_scale;
+        let tree_items: [(&str, &str, &str, f32); 12] = [
+            ("📦", "Crate", palette.text_main.as_str(), 0.0),
+            ("📁", "modules", palette.text_sub.as_str(), 14.0),
+            ("📁", "services", palette.text_sub.as_str(), 28.0),
+            ("📁", "auth", palette.text_sub.as_str(), 42.0),
+            ("⬚", "AuthRequest (struct)", "#39c5cf", 56.0),
+            ("⬚", "AuthResponse (struct)", "#39c5cf", 56.0),
+            ("⬚", "AuthError (enum)", "#ff7b72", 56.0),
+            ("⬚", "AuthService (struct)", "#e5a93c", 56.0),
+            ("⊟", "impl AuthService", palette.text_main.as_str(), 56.0),
+            ("⊙", "new()", "#7ee787", 72.0),
+            ("⊙", "login()", "#7ee787", 72.0),
+            ("⊙", "validate_token()", "#7ee787", 72.0),
         ];
 
-        for (icon, label, col, is_bold) in tree_items {
-            let weight = if is_bold { "bold" } else { "normal" };
+        for (icon, label, col, indent) in tree_items {
+            let tx = rx + 14.0 * ui_scale + (indent * ui_scale);
             svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-size="13" dominant-baseline="central">{}</text>
-                <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="{}" font-weight="{}" dominant-baseline="central">{}</text>"##,
-                rx + 14.0 * ui_scale, tree_y, col, icon,
-                rx + 36.0 * ui_scale, tree_y, col, (11.5 * ui_scale).round() as u32, weight, label
+                r##"<text x="{}" y="{}" fill="{}" font-size="11" dominant-baseline="central">{}</text>
+                <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="{}" dominant-baseline="central">{}</text>"##,
+                tx, tree_y, col, icon,
+                tx + 16.0 * ui_scale, tree_y, col, (11.0 * ui_scale).round() as u32, escape_xml(label)
             ));
-            tree_y += 24.0 * ui_scale;
+            tree_y += 20.0 * ui_scale;
         }
 
         // Bottom Card: Symbol Info
-        let info_h = 105.0 * ui_scale;
+        let info_h = 100.0 * ui_scale;
         let info_y = y + h - info_h - 14.0 * ui_scale;
         let info_w = right_w - 28.0 * ui_scale;
         let info_x = rx + 14.0 * ui_scale;
@@ -1102,14 +1185,20 @@ impl StudioOverlay {
         svg.push_str(&format!(
             r##"<rect x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}" stroke="{}" stroke-width="1"/>
             <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold">Symbol Info</text>
-            <text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">Symbol: <tspan fill="{}">verify_token</tspan></text>
-            <text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">Type:   <tspan fill="{}">fn(&amp;AuthRequest) -&gt; AuthResponse</tspan></text>
-            <text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">Visibility: <tspan fill="{}">pub</tspan> │ Lines: <tspan fill="{}">15-22</tspan></text>"##,
+            <rect x="{}" y="{}" width="22" height="22" rx="4" fill="#e5a93c" fill-opacity="0.15" stroke="#e5a93c" stroke-width="1"/>
+            <text x="{}" y="{}" fill="#e5a93c" font-size="12" text-anchor="middle" dominant-baseline="central">⬚</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" font-weight="bold">AuthService</text>
+            <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}">struct</text>
+            <text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">Path: crate::services::auth::AuthService</text>
+            <text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">Location: src/services/auth.rs:42</text>"##,
             info_x, info_y, info_w, info_h, palette.card_bg, palette.divider,
-            info_x + 12.0 * ui_scale, info_y + 18.0 * ui_scale, palette.text_main, (11.5 * ui_scale).round() as u32,
-            info_x + 12.0 * ui_scale, info_y + 40.0 * ui_scale, palette.text_sub, (10.5 * ui_scale).round() as u32, palette.edge_stroke,
-            info_x + 12.0 * ui_scale, info_y + 60.0 * ui_scale, palette.text_sub, (10.5 * ui_scale).round() as u32, palette.type_color,
-            info_x + 12.0 * ui_scale, info_y + 80.0 * ui_scale, palette.text_sub, (10.5 * ui_scale).round() as u32, palette.public_vis, palette.text_main
+            info_x + 12.0 * ui_scale, info_y + 16.0 * ui_scale, palette.text_sub, (10.5 * ui_scale).round() as u32,
+            info_x + 12.0 * ui_scale, info_y + 26.0 * ui_scale,
+            info_x + 23.0 * ui_scale, info_y + 37.0 * ui_scale,
+            info_x + 40.0 * ui_scale, info_y + 35.0 * ui_scale, palette.text_main, (12.0 * ui_scale).round() as u32,
+            info_x + 40.0 * ui_scale, info_y + 48.0 * ui_scale, palette.type_color, (10.0 * ui_scale).round() as u32,
+            info_x + 12.0 * ui_scale, info_y + 68.0 * ui_scale, palette.text_sub, (10.0 * ui_scale).round() as u32,
+            info_x + 12.0 * ui_scale, info_y + 84.0 * ui_scale, palette.text_muted, (10.0 * ui_scale).round() as u32
         ));
     }
 
@@ -1127,32 +1216,19 @@ impl StudioOverlay {
             w, h
         ));
 
-        let card_w = 480.0 * ui_scale;
-        let card_h = 300.0 * ui_scale;
+        let card_w = 460.0 * ui_scale;
+        let card_h = 285.0 * ui_scale;
         let card_x = (w - card_w) / 2.0;
         let card_y = (h - card_h) / 2.0 - 40.0 * ui_scale;
 
         // Elevated Palette Card
         svg.push_str(&format!(
             r##"<rect x="{}" y="{}" width="{}" height="{}" rx="8" fill="{}" stroke="{}" stroke-width="1.5"/>"##,
-            card_x, card_y, card_w, card_h, palette.card_bg, palette.edge_stroke
+            card_x, card_y, card_w, card_h, palette.card_bg, palette.border
         ));
 
-        // Search Input Field: 🔍 :|
+        // Search Input Field: :|
         let input_h = 42.0 * ui_scale;
-        svg.push_str(&format!(
-            r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>
-            <text x="{}" y="{}" fill="{}" font-size="15" dominant-baseline="central">🔍</text>"##,
-            card_x,
-            card_y + input_h,
-            card_x + card_w,
-            card_y + input_h,
-            palette.divider,
-            card_x + 16.0 * ui_scale,
-            card_y + input_h / 2.0,
-            palette.text_sub
-        ));
-
         let prompt_str = if app_state.modal.command_buffer.is_empty() {
             ":|"
         } else {
@@ -1160,49 +1236,71 @@ impl StudioOverlay {
         };
 
         svg.push_str(&format!(
-            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold" dominant-baseline="central">{}</text>"##,
-            card_x + 42.0 * ui_scale, card_y + input_h / 2.0, palette.text_main, (14.0 * ui_scale).round() as u32, escape_xml(prompt_str)
+            r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>
+            <text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold" dominant-baseline="central">{}</text>"##,
+            card_x,
+            card_y + input_h,
+            card_x + card_w,
+            card_y + input_h,
+            palette.divider,
+            card_x + 16.0 * ui_scale,
+            card_y + input_h / 2.0,
+            palette.text_main,
+            (14.0 * ui_scale).round() as u32,
+            escape_xml(prompt_str)
         ));
 
-        // Command Items List
+        // Command Items List matching Panel 4
         let commands = [
-            (":open", "⌘O", "Open Workspace or Architecture File"),
-            (":build", "⌘B", "Cargo Check & Build Verification"),
-            (":test", "⌘T", "Run Executable Node Test Harness"),
-            (":run", "⌘R", "Execute Service Node Live"),
-            (":theme", "⌘T", "Toggle Color Palette & UI Theme"),
-            (":help", "⌘?", "Interactive Command Reference & Docs"),
+            (":open", "Open file in editor", "⌘ O"),
+            (":build", "Build the project", "⌘ B"),
+            (":test", "Run tests", "⌘ T"),
+            (":run", "Execute diagram", "⌘ R"),
+            (":theme", "Change theme", "⌘ T"),
+            (":help", "Show help", "⌘ ?"),
         ];
 
         let item_h = 36.0 * ui_scale;
         let mut item_y = card_y + input_h + 8.0 * ui_scale;
 
-        for (idx, (cmd, shortcut, desc)) in commands.iter().enumerate() {
+        for (idx, (cmd, desc, shortcut)) in commands.iter().enumerate() {
             let is_sel = idx == app_state.command_palette_selected_idx;
             if is_sel {
                 svg.push_str(&format!(
-                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="5" fill="{}" fill-opacity="0.9"/>"##,
-                    card_x + 8.0 * ui_scale, item_y, card_w - 16.0 * ui_scale, item_h, palette.card_header
+                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="5" fill="#163b65"/>"##,
+                    card_x + 8.0 * ui_scale,
+                    item_y,
+                    card_w - 16.0 * ui_scale,
+                    item_h
                 ));
             }
 
             let cmd_col = if is_sel {
-                &palette.edge_stroke
+                "#ffffff"
             } else {
-                &palette.text_main
+                palette.text_main.as_str()
             };
-            let font_cmd = (12.5 * ui_scale).round() as u32;
+            let desc_col = if is_sel {
+                "#d0e2ff"
+            } else {
+                palette.text_sub.as_str()
+            };
+            let short_col = if is_sel {
+                "#79c0ff"
+            } else {
+                palette.text_muted.as_str()
+            };
+
+            let font_cmd = (12.0 * ui_scale).round() as u32;
             let font_desc = (11.0 * ui_scale).round() as u32;
 
             svg.push_str(&format!(
                 r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold" dominant-baseline="central">{}</text>
                 <text x="{}" y="{}" fill="{}" font-family="system-ui, sans-serif" font-size="{}" dominant-baseline="central">{}</text>
-                <rect x="{}" y="{}" width="32" height="18" rx="4" fill="{}" stroke="{}" stroke-width="1"/>
-                <text x="{}" y="{}" fill="{}" font-family="monospace" font-size="10" text-anchor="middle" dominant-baseline="central">{}</text>"##,
-                card_x + 20.0 * ui_scale, item_y + item_h / 2.0, cmd_col, font_cmd, cmd,
-                card_x + 95.0 * ui_scale, item_y + item_h / 2.0, palette.text_sub, font_desc, desc,
-                card_x + card_w - 48.0 * ui_scale, item_y + (item_h - 18.0) / 2.0, palette.badge_bg, palette.divider,
-                card_x + card_w - 32.0 * ui_scale, item_y + item_h / 2.0, palette.text_sub, shortcut
+                <text x="{}" y="{}" fill="{}" font-family="monospace, sans-serif" font-size="{}" text-anchor="end" dominant-baseline="central">{}</text>"##,
+                card_x + 18.0 * ui_scale, item_y + item_h / 2.0, cmd_col, font_cmd, cmd,
+                card_x + 88.0 * ui_scale, item_y + item_h / 2.0, desc_col, font_desc, desc,
+                card_x + card_w - 18.0 * ui_scale, item_y + item_h / 2.0, short_col, font_cmd, shortcut
             ));
 
             item_y += item_h + 2.0 * ui_scale;

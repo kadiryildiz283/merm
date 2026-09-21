@@ -377,4 +377,58 @@ impl ColorPalette {
             _ => "⬡",
         }
     }
+
+    pub fn node_role_color(&self, role: &str, title: &str) -> &'static str {
+        let t = title.to_lowercase();
+        let r = role.to_lowercase();
+        if t.contains("auth") {
+            "#e5a93c"
+        } else if t.contains("notification") {
+            "#f43f5e"
+        } else if t.contains("gateway") {
+            "#3fb950"
+        } else if t.contains("user service") || (t.contains("user") && r.contains("service")) {
+            "#388bfd"
+        } else if t.contains("mobile") || t.contains("web") || t.contains("frontend") {
+            "#bc8cff"
+        } else if t.contains("postgres") || r.contains("database") || r.contains("db") {
+            "#39c5cf"
+        } else if t.contains("redis") || r.contains("cache") {
+            "#ff6b6b"
+        } else if t.contains("queue") || r.contains("queue") || t.contains("kafka") {
+            "#79c0ff"
+        } else if t.contains("user") || r.contains("actor") {
+            "#388bfd"
+        } else {
+            self.role_color(role)
+        }
+    }
+
+    pub fn node_role_icon(&self, role: &str, title: &str) -> &'static str {
+        let t = title.to_lowercase();
+        let r = role.to_lowercase();
+        if t.contains("auth") {
+            "⚙"
+        } else if t.contains("notification") {
+            "🔔"
+        } else if t.contains("gateway") {
+            "⚙"
+        } else if t.contains("user service") || (t.contains("user") && r.contains("service")) {
+            "👤"
+        } else if t.contains("mobile") {
+            "📱"
+        } else if t.contains("web") || t.contains("frontend") {
+            "💻"
+        } else if t.contains("postgres") || r.contains("database") || r.contains("db") {
+            "🗄"
+        } else if t.contains("redis") || r.contains("cache") {
+            "⚡"
+        } else if t.contains("queue") || r.contains("queue") || t.contains("kafka") {
+            "⇄"
+        } else if t.contains("user") || r.contains("actor") {
+            "👤"
+        } else {
+            self.role_icon_symbol(role)
+        }
+    }
 }

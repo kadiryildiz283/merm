@@ -183,6 +183,9 @@ impl RenderedDiagram {
         svg.push_str(&format!(
             r##"
         <defs>
+            <pattern id="canvas-grid" width="24" height="24" patternUnits="userSpaceOnUse">
+                <circle cx="12" cy="12" r="0.8" fill="#283141" opacity="0.5"/>
+            </pattern>
             <marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
                 <path d="M 0 1 L 10 5 L 0 9 z" fill="{}"/>
             </marker>
@@ -220,7 +223,8 @@ impl RenderedDiagram {
                 String::new()
             } else {
                 format!(
-                    r##"<rect width="100%" height="100%" fill="{}"/>"##,
+                    r##"<rect width="100%" height="100%" fill="{}"/>
+        <rect width="100%" height="100%" fill="url(#canvas-grid)"/>"##,
                     palette.background
                 )
             }
@@ -620,15 +624,20 @@ impl RenderedDiagram {
             } else {
                 // Modern Architecture Service Card (Apple / Linear Dark aesthetic)
                 let role = node.role();
-                let role_col = palette.role_color(&role);
-                let role_icon = palette.role_icon_symbol(&role);
                 let clean_title = node.clean_title();
+                let role_col = palette.node_role_color(&role, &clean_title);
+                let role_icon = palette.node_role_icon(&role, &clean_title);
+                let card_stroke = if is_selected {
+                    palette.text_accent.as_str()
+                } else {
+                    role_col
+                };
 
                 svg.push_str(&format!(
                     r##"<g id="node_{}" class="arch-node">
                     <rect x="{}" y="{}" width="{}" height="{}" rx="10" fill="{}" stroke="{}" stroke-width="{}"/>"##,
                     escape_xml(&node.id),
-                    node.x, node.y, node.width, node.height, palette.card_bg, role_col, border_width
+                    node.x, node.y, node.width, node.height, palette.card_bg, card_stroke, border_width
                 ));
 
                 // Left Icon Box
