@@ -201,53 +201,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let content = match file_path.as_deref() {
         Some("-") | None => {
             if atty_is_terminal() {
-                // Check if current directory or any ancestor is inside a Cargo project
+                // Check current directory or any ancestor for project root
                 let curr_dir = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-                if let Some(cargo_root) = ProjectManifest::detect_cargo_root(&curr_dir) {
-                    bound_dir = Some(cargo_root.to_string_lossy().to_string());
-                    if let Ok(scan_report) = RustScanner::scan_project(&cargo_root) {
-                        RustScanner::generate_mermaid_class_diagram(&scan_report)
-                    } else {
-                        format!(
-                            "classDiagram\n    direction TD\n    class {} {{\n        <<project>>\n        +run()\n    }}\n",
-                            cargo_root.file_name().and_then(|s| s.to_str()).unwrap_or("Project")
-                        )
-                    }
+                let project_root = ProjectManifest::detect_project_root(&curr_dir);
+                bound_dir = Some(project_root.to_string_lossy().to_string());
+                if let Ok(scan_report) = RustScanner::scan_project(&project_root) {
+                    RustScanner::generate_mermaid_class_diagram(&scan_report)
                 } else {
-                    // Not in a Cargo project: display rich, interactive Welcome & Architecture Guide
-                    r#"classDiagram
-    direction LR
-
-    %% Welcome to Merm - Native Linux Architecture Development Tool
-    class MermProject {
-        <<active>>
-        +String status // Connected & Ready
-        +runCommand(String cmd)
-        +executeNodeTest()
-    }
-
-    %% AI Architectural Advisor & Automation Commands
-    class AIAdvisor {
-        <<ai-service>>
-        +&check() : Verify diagram vs Rust AST with AI
-        +&ai(prompt) : Mutate codebase and diagram via AI
-        +&advice() : Request architectural advice
-        +&ok() : Apply recommended AI advice
-    }
-
-    %% Project Binding & Executable Nodes
-    class WorkspaceEngine {
-        <<runtime>>
-        +&set(path) : Bind Cargo project to live Mermaid
-        +:test(node, input) : Run executable test harness (Key: 't')
-        +:add(class) : Scaffolds new struct & file (Key: 'a')
-        +:connect(from, to) : Link architectural relations
-    }
-
-    MermProject ..> AIAdvisor : queries
-    MermProject *-- WorkspaceEngine : executes
-"#
-                    .to_string()
+                    format!(
+                        "classDiagram\n    direction TD\n    class {} {{\n        <<project>>\n        +run()\n    }}\n",
+                        project_root.file_name().and_then(|s| s.to_str()).unwrap_or("Project")
+                    )
                 }
             } else {
                 let mut buffer = String::new();
@@ -258,24 +222,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(path) => {
             let p = std::path::Path::new(path);
             if p.is_dir() {
-                if let Some(cargo_root) = ProjectManifest::detect_cargo_root(p) {
-                    bound_dir = Some(cargo_root.to_string_lossy().to_string());
-                    if let Ok(scan_report) = RustScanner::scan_project(&cargo_root) {
-                        RustScanner::generate_mermaid_class_diagram(&scan_report)
-                    } else {
-                        format!(
-                            "classDiagram\n    direction TD\n    class {} {{\n        <<project>>\n        +run()\n    }}\n",
-                            cargo_root.file_name().and_then(|s| s.to_str()).unwrap_or("Project")
-                        )
-                    }
+                let project_root = ProjectManifest::detect_project_root(p);
+                bound_dir = Some(project_root.to_string_lossy().to_string());
+                if let Ok(scan_report) = RustScanner::scan_project(&project_root) {
+                    RustScanner::generate_mermaid_class_diagram(&scan_report)
                 } else {
-                    bound_dir = Some(path.to_string());
-                    "classDiagram\n".to_string()
+                    format!(
+                        "classDiagram\n    direction TD\n    class {} {{\n        <<project>>\n        +run()\n    }}\n",
+                        project_root.file_name().and_then(|s| s.to_str()).unwrap_or("Project")
+                    )
                 }
             } else {
-                if let Some(cargo_root) = ProjectManifest::detect_cargo_root(p) {
-                    bound_dir = Some(cargo_root.to_string_lossy().to_string());
-                }
+                let project_root = ProjectManifest::detect_project_root(p);
+                bound_dir = Some(project_root.to_string_lossy().to_string());
                 fs::read_to_string(path)?
             }
         }

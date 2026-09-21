@@ -194,8 +194,19 @@ impl MermAppWindow {
             width, height, width, height
         ));
 
-        // 1. Top Header Bar (Minimal, 24px)
-        let top_h = 24.0;
+        // Dynamic HiDPI scaling based on viewport size (e.g. 2.8K / 4K monitors)
+        let ui_scale = if w >= 2500.0 || h >= 1500.0 {
+            1.85f32
+        } else if w >= 1800.0 || h >= 1000.0 {
+            1.35f32
+        } else {
+            1.0f32
+        };
+
+        // 1. Top Header Bar (Scalable: 26px * ui_scale)
+        let top_h = 26.0 * ui_scale;
+        let top_font_size = (11.5 * ui_scale).round() as u32;
+        let top_text_y = top_h * 0.65;
         svg.push_str(&format!(
             r##"<rect x="0" y="0" width="{}" height="{}" fill="{}" opacity="0.96"/>"##,
             w, top_h, palette.card_bg
@@ -216,15 +227,15 @@ impl MermAppWindow {
             "⚡ MERM │ [No project bound - run &set]".to_string()
         };
         svg.push_str(&format!(
-            r##"<text x="12" y="16" fill="{}" font-family="monospace" font-size="11" font-weight="bold">{}</text>"##,
-            palette.method_color, escape_xml(&project_badge)
+            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">{}</text>"##,
+            12.0 * ui_scale, top_text_y, palette.method_color, top_font_size, escape_xml(&project_badge)
         ));
 
         // Active node indicator in top bar
         if let Some(ref sel_id) = app_state.active_node_id {
             svg.push_str(&format!(
-                r##"<text x="360" y="16" fill="{}" font-family="monospace" font-size="11">🎯 &lt;{}&gt; [t: Test │ i: Inspect │ e: Edit]</text>"##,
-                palette.stereotype_color, escape_xml(sel_id)
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">🎯 &lt;{}&gt; [t: Test │ i: Inspect │ e: Edit]</text>"##,
+                380.0 * ui_scale, top_text_y, palette.stereotype_color, top_font_size, escape_xml(sel_id)
             ));
         }
 
@@ -236,14 +247,14 @@ impl MermAppWindow {
             dir_str, theme_str
         );
         svg.push_str(&format!(
-            r##"<text x="{}" y="16" fill="{}" font-family="monospace" font-size="11" text-anchor="end">{}</text>"##,
-            w - 12.0, palette.text_sub, escape_xml(&right_header)
+            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">{}</text>"##,
+            w - 12.0 * ui_scale, top_text_y, palette.text_sub, top_font_size, escape_xml(&right_header)
         ));
 
         // 2. Full-screen / Drawer Modals: NodeTest & Inspector
         match app_state.modal.mode {
             UiMode::NodeTest => {
-                let drawer_h = 130.0;
+                let drawer_h = 145.0 * ui_scale;
                 let drawer_y = h - drawer_h;
                 let active_node = app_state
                     .modal
@@ -261,12 +272,12 @@ impl MermAppWindow {
                 ));
 
                 svg.push_str(&format!(
-                    r##"<text x="16" y="{}" fill="{}" font-family="monospace" font-size="13" font-weight="bold">🚀 Executable Node Test Harness: &lt;{}&gt;</text>"##,
-                    drawer_y + 24.0, palette.method_color, escape_xml(active_node)
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">🚀 Executable Node Test Harness: &lt;{}&gt;</text>"##,
+                    16.0 * ui_scale, drawer_y + 26.0 * ui_scale, palette.method_color, (13.0 * ui_scale).round() as u32, escape_xml(active_node)
                 ));
                 svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">[Enter] Run Harness │ [Esc] Close</text>"##,
-                    w - 16.0, drawer_y + 24.0, palette.text_sub
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">[Enter] Run Harness │ [Esc] Close</text>"##,
+                    w - 16.0 * ui_scale, drawer_y + 26.0 * ui_scale, palette.text_sub, (11.0 * ui_scale).round() as u32
                 ));
 
                 // Input box
@@ -274,13 +285,14 @@ impl MermAppWindow {
                     "Payload Input: {}█",
                     escape_xml(&app_state.modal.test_input_buffer)
                 );
+                let input_h = 32.0 * ui_scale;
                 svg.push_str(&format!(
-                    r##"<rect x="14" y="{}" width="{}" height="28" rx="4" fill="{}" stroke="{}" stroke-width="1"/>"##,
-                    drawer_y + 36.0, w - 28.0, palette.background, palette.method_color
+                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="4" fill="{}" stroke="{}" stroke-width="1"/>"##,
+                    14.0 * ui_scale, drawer_y + 40.0 * ui_scale, w - 28.0 * ui_scale, input_h, palette.background, palette.method_color
                 ));
                 svg.push_str(&format!(
-                    r##"<text x="24" y="{}" fill="{}" font-family="monospace" font-size="12">{}</text>"##,
-                    drawer_y + 54.0, palette.text_main, input_disp
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
+                    24.0 * ui_scale, drawer_y + 61.0 * ui_scale, palette.text_main, (12.5 * ui_scale).round() as u32, input_disp
                 ));
 
                 // Status or output preview
@@ -297,17 +309,16 @@ impl MermAppWindow {
                         .to_string()
                 };
                 svg.push_str(&format!(
-                    r##"<text x="16" y="{}" fill="{}" font-family="monospace" font-size="11">{}</text>"##,
-                    drawer_y + 88.0, palette.text_sub, status_preview
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
+                    16.0 * ui_scale, drawer_y + 98.0 * ui_scale, palette.text_sub, (11.5 * ui_scale).round() as u32, status_preview
                 ));
 
                 svg.push_str("</svg>");
                 return Some(svg);
             }
             UiMode::Inspector => {
-                // Centered Node Inspector modal window
-                let modal_w = (w - 160.0).max(480.0);
-                let modal_h = (h - 120.0).max(340.0);
+                let modal_w = (w - 160.0 * ui_scale).max(520.0 * ui_scale);
+                let modal_h = (h - 120.0 * ui_scale).max(360.0 * ui_scale);
                 let modal_x = (w - modal_w) / 2.0;
                 let modal_y = (h - modal_h) / 2.0;
 
@@ -321,20 +332,20 @@ impl MermAppWindow {
                     modal_x, modal_y, modal_w, modal_h, palette.background, palette.badge_bg
                 ));
 
-                // Header bar
+                let header_bar_h = 36.0 * ui_scale;
                 svg.push_str(&format!(
-                    r##"<rect x="{}" y="{}" width="{}" height="32" rx="6" fill="{}"/>"##,
-                    modal_x, modal_y, modal_w, palette.badge_bg
+                    r##"<rect x="{}" y="{}" width="{}" height="{}" rx="6" fill="{}"/>"##,
+                    modal_x, modal_y, modal_w, header_bar_h, palette.badge_bg
                 ));
 
                 let active_id = app_state.active_node_id.as_deref().unwrap_or("Unknown");
                 svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="13" font-weight="bold">🔍 Node Inspector: &lt;{}&gt;</text>"##,
-                    modal_x + 16.0, modal_y + 21.0, palette.text_main, escape_xml(active_id)
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">🔍 Node Inspector: &lt;{}&gt;</text>"##,
+                    modal_x + 16.0 * ui_scale, modal_y + 24.0 * ui_scale, palette.text_main, (13.0 * ui_scale).round() as u32, escape_xml(active_id)
                 ));
                 svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">[e] Edit in $EDITOR │ [t] Test │ [Esc/q] Close</text>"##,
-                    modal_x + modal_w - 16.0, modal_y + 21.0, palette.text_sub
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">[e] Edit in $EDITOR │ [t] Test │ [Esc/q] Close</text>"##,
+                    modal_x + modal_w - 16.0 * ui_scale, modal_y + 24.0 * ui_scale, palette.text_sub, (11.0 * ui_scale).round() as u32
                 ));
 
                 let node_data = app_state
@@ -347,7 +358,7 @@ impl MermAppWindow {
                     .as_ref()
                     .and_then(|m| m.get_binding(active_id));
 
-                let mut cur_y = modal_y + 54.0;
+                let mut cur_y = modal_y + 60.0 * ui_scale;
                 let role = node_data
                     .and_then(|n| n.stereotype.as_deref())
                     .unwrap_or("struct");
@@ -358,42 +369,42 @@ impl MermAppWindow {
                 let is_exec = binding.map(|b| b.executable).unwrap_or(true);
 
                 svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12" font-weight="bold">Kind: &lt;&lt;{}&gt;&gt; │ File: {} │ Executable: {} │ Entrypoint: {}()</text>"##,
-                    modal_x + 16.0, cur_y, palette.stereotype_color, escape_xml(role), escape_xml(bound_file), if is_exec { "YES" } else { "NO" }, escape_xml(entrypoint)
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">Kind: &lt;&lt;{}&gt;&gt; │ File: {} │ Executable: {} │ Entrypoint: {}()</text>"##,
+                    modal_x + 16.0 * ui_scale, cur_y, palette.stereotype_color, (12.0 * ui_scale).round() as u32, escape_xml(role), escape_xml(bound_file), if is_exec { "YES" } else { "NO" }, escape_xml(entrypoint)
                 ));
-                cur_y += 22.0;
+                cur_y += 24.0 * ui_scale;
 
                 if let Some(doc) = node_data.and_then(|n| n.doc_comment.as_deref()) {
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" font-style="italic">%% {}</text>"##,
-                        modal_x + 16.0, cur_y, palette.comment_color, escape_xml(doc)
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-style="italic">%% {}</text>"##,
+                        modal_x + 16.0 * ui_scale, cur_y, palette.comment_color, (11.0 * ui_scale).round() as u32, escape_xml(doc)
                     ));
-                    cur_y += 18.0;
+                    cur_y += 20.0 * ui_scale;
                 }
 
                 if let Some(node) = node_data {
                     if !node.attributes.is_empty() {
                         svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" font-weight="bold">Fields ({}):</text>"##,
-                            modal_x + 16.0, cur_y, palette.var_color, node.attributes.len()
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">Fields ({}):</text>"##,
+                            modal_x + 16.0 * ui_scale, cur_y, palette.var_color, (11.5 * ui_scale).round() as u32, node.attributes.len()
                         ));
-                        cur_y += 16.0;
+                        cur_y += 18.0 * ui_scale;
                         for attr in node.attributes.iter().take(4) {
                             let type_str = attr.type_name.as_deref().unwrap_or("String");
                             svg.push_str(&format!(
-                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11">   {}{}: {}</text>"##,
-                                modal_x + 20.0, cur_y, palette.text_main, attr.visibility, escape_xml(&attr.name), escape_xml(type_str)
+                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">   {}{}: {}</text>"##,
+                                modal_x + 20.0 * ui_scale, cur_y, palette.text_main, (11.0 * ui_scale).round() as u32, attr.visibility, escape_xml(&attr.name), escape_xml(type_str)
                             ));
-                            cur_y += 15.0;
+                            cur_y += 17.0 * ui_scale;
                         }
                     }
 
                     if !node.methods.is_empty() {
                         svg.push_str(&format!(
-                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" font-weight="bold">Methods ({}):</text>"##,
-                            modal_x + 16.0, cur_y, palette.method_color, node.methods.len()
+                            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">Methods ({}):</text>"##,
+                            modal_x + 16.0 * ui_scale, cur_y, palette.method_color, (11.5 * ui_scale).round() as u32, node.methods.len()
                         ));
-                        cur_y += 16.0;
+                        cur_y += 18.0 * ui_scale;
                         for meth in node.methods.iter().take(4) {
                             let ret_str = meth
                                 .type_name
@@ -401,10 +412,10 @@ impl MermAppWindow {
                                 .map(|r| format!(" -> {}", r))
                                 .unwrap_or_default();
                             svg.push_str(&format!(
-                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11">   {}{}{}</text>"##,
-                                modal_x + 20.0, cur_y, palette.text_main, meth.visibility, escape_xml(&meth.name), escape_xml(&ret_str)
+                                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">   {}{}{}</text>"##,
+                                modal_x + 20.0 * ui_scale, cur_y, palette.text_main, (11.0 * ui_scale).round() as u32, meth.visibility, escape_xml(&meth.name), escape_xml(&ret_str)
                             ));
-                            cur_y += 15.0;
+                            cur_y += 17.0 * ui_scale;
                         }
                     }
                 }
@@ -415,20 +426,26 @@ impl MermAppWindow {
             _ => {}
         }
 
+        let status_h = 24.0 * ui_scale;
+        let cmd_h = 28.0 * ui_scale;
+        let bottom_bars_h = status_h + cmd_h;
+
         // 3. Persistent Vim Horizontal Split Buffer (when show_split_buffer is true or mode is Report)
         let is_split_open = app_state.show_split_buffer || app_state.modal.mode == UiMode::Report;
         if is_split_open {
-            let split_h = (h * 0.48).clamp(240.0, (h - 76.0).max(120.0));
+            let split_h = (h * 0.48).clamp(240.0 * ui_scale, (h - bottom_bars_h - 40.0).max(120.0));
             let split_y = h - split_h;
 
             // Split Buffer Background
             svg.push_str(&format!(
                 r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}" opacity="0.98"/>"##,
-                split_y, w, split_h - 48.0, palette.card_bg
+                split_y, w, split_h - bottom_bars_h, palette.card_bg
             ));
 
             // Split Header Line (Top Border)
-            let split_header_h = 24.0;
+            let split_header_h = 26.0 * ui_scale;
+            let split_header_font = (12.0 * ui_scale).round() as u32;
+            let split_header_y = split_y + split_header_h * 0.65;
             svg.push_str(&format!(
                 r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}"/>"##,
                 split_y, w, split_header_h, palette.badge_bg
@@ -440,26 +457,26 @@ impl MermAppWindow {
 
             let title = "🤖 AI Architecture & Diagnostic Buffer (Vim Split)";
             svg.push_str(&format!(
-                r##"<text x="14" y="{}" fill="{}" font-family="monospace" font-size="12" font-weight="bold">── [ {} ] ──</text>"##,
-                split_y + 16.0, palette.method_color, escape_xml(title)
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">── [ {} ] ──</text>"##,
+                14.0 * ui_scale, split_header_y, palette.method_color, split_header_font, escape_xml(title)
             ));
             svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">[i/&amp;/: Prompt │ j/k, Wheel: Scroll │ &amp;ok: Apply │ s: Toggle Split │ :q: Quit]</text>"##,
-                w - 14.0, split_y + 16.0, palette.text_sub
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">[i/&amp;/: Prompt │ j/k, Wheel: Scroll │ &amp;ok: Apply │ s: Toggle Split │ :q: Quit]</text>"##,
+                w - 14.0 * ui_scale, split_header_y, palette.text_sub, (11.0 * ui_scale).round() as u32
             ));
 
             // Vertical gutter separator line
-            let gutter_w = 46.0;
+            let gutter_w = 48.0 * ui_scale;
             let gutter_x = gutter_w;
-            let content_top_y = split_y + split_header_h + 8.0;
-            let content_bottom_y = h - 48.0 - 4.0;
+            let content_top_y = split_y + split_header_h + 8.0 * ui_scale;
+            let content_bottom_y = h - bottom_bars_h - 4.0 * ui_scale;
 
             svg.push_str(&format!(
                 r##"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
                 gutter_x,
                 split_y + split_header_h,
                 gutter_x,
-                h - 48.0,
+                h - bottom_bars_h,
                 palette.badge_bg
             ));
 
@@ -467,14 +484,17 @@ impl MermAppWindow {
             if let Some(ref content) = app_state.report_content {
                 let all_lines: Vec<&str> = content.lines().collect();
                 let total_lines = all_lines.len();
-                let line_h = 17.0;
+                let line_h = 18.0 * ui_scale;
                 let max_visible_lines =
                     ((content_bottom_y - content_top_y) / line_h).floor() as usize;
 
                 let max_offset = total_lines.saturating_sub(max_visible_lines);
                 let offset = app_state.modal.report_scroll_offset.min(max_offset);
 
-                let mut cur_y = content_top_y + 12.0;
+                let line_font = (12.5 * ui_scale).round() as u32;
+                let gutter_font = (11.0 * ui_scale).round() as u32;
+
+                let mut cur_y = content_top_y + 12.0 * ui_scale;
                 for (idx, line) in all_lines
                     .iter()
                     .skip(offset)
@@ -485,8 +505,8 @@ impl MermAppWindow {
 
                     // Gutter line number
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">{}</text>"##,
-                        gutter_x - 8.0, cur_y, palette.text_sub, line_no
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">{}</text>"##,
+                        gutter_x - 8.0 * ui_scale, cur_y, palette.text_sub, gutter_font, line_no
                     ));
 
                     // Syntax coloring
@@ -515,8 +535,8 @@ impl MermAppWindow {
                     };
 
                     svg.push_str(&format!(
-                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="12">{}</text>"##,
-                        gutter_x + 12.0, cur_y, color, escape_xml(line)
+                        r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
+                        gutter_x + 12.0 * ui_scale, cur_y, color, line_font, escape_xml(line)
                     ));
 
                     cur_y += line_h;
@@ -533,17 +553,19 @@ impl MermAppWindow {
                     format!("{:.0}%", (offset as f32 / total_lines as f32) * 100.0)
                 };
                 svg.push_str(&format!(
-                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">[{}]</text>"##,
-                    w - 460.0, split_y + 16.0, palette.stereotype_color, scroll_status
+                    r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">[{}]</text>"##,
+                    w - 460.0 * ui_scale, split_header_y, palette.stereotype_color, (11.0 * ui_scale).round() as u32, scroll_status
                 ));
             }
         }
 
-        // 4. Authentic Vim Statusline (Height: 22px at y = h - 48.0)
-        let status_y = h - 48.0;
+        // 4. Authentic Vim Statusline (Height: status_h at y = h - bottom_bars_h)
+        let status_y = h - bottom_bars_h;
+        let status_font = (11.5 * ui_scale).round() as u32;
+        let status_text_y = status_y + status_h * 0.65;
         svg.push_str(&format!(
-            r##"<rect x="0" y="{}" width="{}" height="22" fill="{}"/>"##,
-            status_y, w, palette.badge_bg
+            r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}"/>"##,
+            status_y, w, status_h, palette.badge_bg
         ));
 
         // Mode Badge
@@ -554,14 +576,14 @@ impl MermAppWindow {
             UiMode::Report => ("#a6e3a1", "REPORT"),
             _ => ("#89b4fa", "NORMAL"),
         };
-        let badge_w: f32 = 80.0;
+        let badge_w: f32 = 84.0 * ui_scale;
         svg.push_str(&format!(
-            r##"<rect x="0" y="{}" width="{}" height="22" fill="{}"/>"##,
-            status_y, badge_w, badge_bg
+            r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}"/>"##,
+            status_y, badge_w, status_h, badge_bg
         ));
         svg.push_str(&format!(
-            r##"<text x="{}" y="{}" fill="#11111b" font-family="monospace" font-size="11" font-weight="bold" text-anchor="middle">{}</text>"##,
-            badge_w / 2.0, status_y + 15.0, badge_text
+            r##"<text x="{}" y="{}" fill="#11111b" font-family="monospace" font-size="{}" font-weight="bold" text-anchor="middle">{}</text>"##,
+            badge_w / 2.0, status_text_y, status_font, badge_text
         ));
 
         // Project & Focus File
@@ -573,22 +595,22 @@ impl MermAppWindow {
         let active_sym = app_state.active_node_id.as_deref().unwrap_or("canvas");
         let file_info = format!(" 📁 {}  {}", project_name, active_sym);
         svg.push_str(&format!(
-            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" font-weight="bold">{}</text>"##,
-            badge_w + 10.0, status_y + 15.0, palette.text_main, escape_xml(&file_info)
+            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">{}</text>"##,
+            badge_w + 10.0 * ui_scale, status_text_y, palette.text_main, status_font, escape_xml(&file_info)
         ));
 
         // Middle: Busy animation or status message
-        let middle_x: f32 = (badge_w + 240.0f32).min(w - 280.0f32);
+        let middle_x: f32 = (badge_w + 240.0 * ui_scale).min(w - 280.0 * ui_scale);
         if app_state.is_busy {
             let busy_text = format!("⏳ {} [working...]", app_state.busy_message);
             svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" font-weight="bold">{}</text>"##,
-                middle_x, status_y + 15.0, palette.method_color, escape_xml(&busy_text)
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">{}</text>"##,
+                middle_x, status_text_y, palette.method_color, status_font, escape_xml(&busy_text)
             ));
         } else if !app_state.status_message.is_empty() {
             svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11">{}</text>"##,
-                middle_x, status_y + 15.0, palette.text_sub, escape_xml(&app_state.status_message)
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">{}</text>"##,
+                middle_x, status_text_y, palette.text_sub, status_font, escape_xml(&app_state.status_message)
             ));
         }
 
@@ -596,15 +618,17 @@ impl MermAppWindow {
         let zoom_pct = (app_state.transform.scale * 100.0) as u32;
         let ruler = format!("utf-8 │ 120 FPS │ {}% │ Ln 1, Col 1", zoom_pct);
         svg.push_str(&format!(
-            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">{}</text>"##,
-            w - 12.0, status_y + 15.0, palette.text_sub, escape_xml(&ruler)
+            r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">{}</text>"##,
+            w - 12.0 * ui_scale, status_text_y, palette.text_sub, status_font, escape_xml(&ruler)
         ));
 
-        // 5. Vim Command Line (Height: 26px at y = h - 26.0)
-        let cmd_y = h - 26.0;
+        // 5. Vim Command Line (Height: cmd_h at y = h - cmd_h)
+        let cmd_y = h - cmd_h;
+        let cmd_font = (13.0 * ui_scale).round() as u32;
+        let cmd_text_y = cmd_y + cmd_h * 0.65;
         svg.push_str(&format!(
-            r##"<rect x="0" y="{}" width="{}" height="26" fill="{}" opacity="0.98"/>"##,
-            cmd_y, w, palette.card_bg
+            r##"<rect x="0" y="{}" width="{}" height="{}" fill="{}" opacity="0.98"/>"##,
+            cmd_y, w, cmd_h, palette.card_bg
         ));
         svg.push_str(&format!(
             r##"<line x1="0" y1="{}" x2="{}" y2="{}" stroke="{}" stroke-width="1"/>"##,
@@ -614,22 +638,22 @@ impl MermAppWindow {
         if app_state.modal.mode == UiMode::Command {
             let cmd_str = format!("{}█", escape_xml(&app_state.modal.command_buffer));
             svg.push_str(&format!(
-                r##"<text x="12" y="{}" fill="{}" font-family="monospace" font-size="13" font-weight="bold">{}</text>"##,
-                cmd_y + 18.0, palette.text_main, cmd_str
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" font-weight="bold">{}</text>"##,
+                12.0 * ui_scale, cmd_text_y, palette.text_main, cmd_font, cmd_str
             ));
             svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">[Enter] Run  │  [Esc] Cancel</text>"##,
-                w - 14.0, cmd_y + 18.0, palette.text_sub
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">[Enter] Run  │  [Esc] Cancel</text>"##,
+                w - 14.0 * ui_scale, cmd_text_y, palette.text_sub, (11.0 * ui_scale).round() as u32
             ));
         } else {
             // Normal / Report mode prompt hint
             svg.push_str(&format!(
-                r##"<text x="12" y="{}" fill="{}" font-family="monospace" font-size="12">[AI Chat Buffer] Type 'i', '&amp;', or ':' to prompt AI / run commands (&amp;check, &amp;ai, &amp;advice, &amp;ok, &amp;set) │ 's': toggle split █</text>"##,
-                cmd_y + 17.0, palette.text_sub
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}">[AI Chat Buffer] Type 'i', '&amp;', or ':' to prompt AI / run commands (&amp;check, &amp;ai, &amp;advice, &amp;ok, &amp;set) │ 's': toggle split █</text>"##,
+                12.0 * ui_scale, cmd_text_y, palette.text_sub, (12.0 * ui_scale).round() as u32
             ));
             svg.push_str(&format!(
-                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="11" text-anchor="end">merm (Vim mode)</text>"##,
-                w - 14.0, cmd_y + 17.0, palette.badge_bg
+                r##"<text x="{}" y="{}" fill="{}" font-family="monospace" font-size="{}" text-anchor="end">merm (Vim mode)</text>"##,
+                w - 14.0 * ui_scale, cmd_text_y, palette.badge_bg, (11.0 * ui_scale).round() as u32
             ));
         }
 
@@ -644,7 +668,8 @@ impl ApplicationHandler for MermAppWindow {
             let initial_title = format!("merm | {}", self.app_state.hud_status());
             let win_attr = Window::default_attributes()
                 .with_title(initial_title)
-                .with_inner_size(winit::dpi::LogicalSize::new(1280.0, 720.0))
+                .with_inner_size(winit::dpi::LogicalSize::new(1600.0, 1000.0))
+                .with_maximized(true)
                 .with_transparent(true);
 
             let window = Arc::new(
@@ -699,7 +724,11 @@ impl ApplicationHandler for MermAppWindow {
                         let ch = c.chars().next().unwrap_or(' ');
                         self.app_state.modal.handle_key(ch, has_selected)
                     }
+                    Key::Named(NamedKey::Space) => {
+                        self.app_state.modal.handle_key(' ', has_selected)
+                    }
                     Key::Named(NamedKey::Backspace) => self.app_state.modal.handle_backspace(),
+                    Key::Named(NamedKey::Delete) => self.app_state.modal.handle_backspace(),
                     Key::Named(NamedKey::Enter) => {
                         self.app_state.modal.handle_key('\n', has_selected)
                     }
@@ -785,12 +814,19 @@ impl ApplicationHandler for MermAppWindow {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let (_win_w, win_h) = self.current_surface_size;
+                let (win_w, win_h) = self.current_surface_size;
                 let (cx, cy) = self.last_cursor_pos.unwrap_or((640.0, 360.0));
 
-                // If split buffer is open and mouse is over the split buffer, scroll report buffer
+                let ui_scale = if win_w >= 2500 || win_h >= 1500 {
+                    1.85f64
+                } else if win_w >= 1800 || win_h >= 1000 {
+                    1.35f64
+                } else {
+                    1.0f64
+                };
+                let bottom_bars_h = (24.0 + 28.0) * ui_scale;
                 let split_top_y =
-                    (win_h as f64 * 0.48).clamp(240.0, (win_h as f64 - 76.0).max(120.0));
+                    (win_h as f64 * 0.48).clamp(240.0 * ui_scale, (win_h as f64 - bottom_bars_h - 40.0).max(120.0));
                 let is_split_open =
                     self.app_state.show_split_buffer || self.app_state.modal.mode == UiMode::Report;
                 if is_split_open && cy >= (win_h as f64 - split_top_y)
@@ -885,10 +921,18 @@ impl ApplicationHandler for MermAppWindow {
             } => {
                 if state == ElementState::Pressed {
                     let (cx, cy) = self.last_cursor_pos.unwrap_or((640.0, 360.0));
-                    let (_win_w, win_h) = self.current_surface_size;
+                    let (win_w, win_h) = self.current_surface_size;
+                    let ui_scale = if win_w >= 2500 || win_h >= 1500 {
+                        1.85f64
+                    } else if win_w >= 1800 || win_h >= 1000 {
+                        1.35f64
+                    } else {
+                        1.0f64
+                    };
+                    let cmd_h = 28.0 * ui_scale;
 
                     // Click on bottom command line
-                    if win_h > 0 && cy >= (win_h as f64 - 28.0) {
+                    if win_h > 0 && cy >= (win_h as f64 - cmd_h) {
                         if self.app_state.modal.mode == UiMode::Report {
                             self.app_state.modal.mode = UiMode::Command;
                             if self.app_state.modal.command_buffer.is_empty() {

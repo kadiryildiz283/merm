@@ -367,4 +367,40 @@ mod tests {
         assert_eq!(controller.mode, UiMode::Command);
         assert_eq!(controller.command_buffer, ":");
     }
+
+    #[test]
+    fn test_modal_command_spacebar_and_backspace() {
+        let mut controller = ModalController::default();
+
+        // Start command mode with '&'
+        controller.handle_key('&', false);
+        assert_eq!(controller.mode, UiMode::Command);
+        assert_eq!(controller.command_buffer, "&");
+
+        // Type "ai create a new user auth module" with spacebars
+        for ch in "ai create a new user auth module".chars() {
+            controller.handle_key(ch, false);
+        }
+        assert_eq!(
+            controller.command_buffer,
+            "&ai create a new user auth module"
+        );
+
+        // Test backspace
+        controller.handle_backspace();
+        assert_eq!(
+            controller.command_buffer,
+            "&ai create a new user auth modul"
+        );
+
+        // Press Enter to execute
+        let action = controller.handle_key('\n', false);
+        assert_eq!(
+            action,
+            UiAction::ExecuteCommand("&ai create a new user auth modul".to_string())
+        );
+        assert_eq!(controller.mode, UiMode::Normal);
+        assert!(controller.command_buffer.is_empty());
+    }
 }
+
